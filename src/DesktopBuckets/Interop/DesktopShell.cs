@@ -52,7 +52,7 @@ namespace DesktopBuckets.Interop
         /// desktop icons — walks outward, cell by cell, to the nearest grid slot that is
         /// clear of icons. Icons are never moved. Falls back to the plain snap if the icon
         /// positions can't be read or nothing is free nearby.</summary>
-        public static Point SnapAvoidingIcons(Point desiredTopLeft, Size tileDip, Size cell, Visual forWindow)
+        public static Point SnapAvoidingIcons(Point desiredTopLeft, Size tileDip, Size cell, Visual forWindow, int maxRadius = 15)
         {
             var basePt = SnapToGrid(desiredTopLeft, cell);
             if (cell.Width <= 0 || cell.Height <= 0) return basePt;
@@ -75,7 +75,7 @@ namespace DesktopBuckets.Interop
             if (Clear(basePt)) return basePt;
 
             var wa = SystemParameters.WorkArea;
-            for (int radius = 1; radius <= 15; radius++)
+            for (int radius = 1; radius <= maxRadius; radius++)
             {
                 for (int dy = -radius; dy <= radius; dy++)
                 for (int dx = -radius; dx <= radius; dx++)

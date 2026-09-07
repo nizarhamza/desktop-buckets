@@ -130,8 +130,10 @@ namespace DesktopBuckets.Views
 
             PlaceWindow(_cascadeIndex);
 
-            // Self-heal: if the saved spot now sits on desktop icons, slide to a free one.
-            SnapToDesktopGrid();
+            // Self-heal: if the saved spot now sits on desktop icons, nudge to a nearby
+            // free one — but only a short distance, so a tile never jumps across the screen
+            // on startup. A full-range search only runs when the user actually drags it.
+            SnapToDesktopGrid(maxRadius: 4);
 
             var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
             if (hwnd != IntPtr.Zero) DesktopWindowHelper.SendToBottom(hwnd);
@@ -183,7 +185,7 @@ namespace DesktopBuckets.Views
             SnapToDesktopGrid();
         }
 
-        private void SnapToDesktopGrid()
+        private void SnapToDesktopGrid(int maxRadius = 15)
         {
             if (!_vm.Bucket.Config.SnapToGrid || _vm.Bucket.Config.Locked) return;
             try
@@ -192,7 +194,7 @@ namespace DesktopBuckets.Views
                 var size = new Size(
                     ActualWidth >= 1 ? ActualWidth : Width,
                     ActualHeight >= 1 ? ActualHeight : Height);
-                var p = DesktopShell.SnapAvoidingIcons(new Point(Left, Top), size, cell, this);
+                var p = DesktopShell.SnapAvoidingIcons(new Point(Left, Top), size, cell, this, maxRadius);
                 Left = p.X;
                 Top = p.Y;
             }
