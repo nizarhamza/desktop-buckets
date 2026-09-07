@@ -112,23 +112,26 @@ namespace DesktopBuckets.Views
             double sxx = dpi.DpiScaleX, syy = dpi.DpiScaleY;
             var cell = DesktopShell.GetIconGrid().CellDip; // px
 
-            // No gutter overhang: the window IS the whole-cell block, so a small bucket is
-            // a true 2×2 that lines up cell-for-cell with the icons. Round to whole cells
-            // with a tolerance so a slight content overflow doesn't jump to an extra cell.
-            _gx = _gy = 0;
+            // The tile occupies a whole-cell block (footprint for snap + displacement),
+            // but the visible window is inset by a margin and centred in that block — so
+            // the gap to the surrounding icons is equal on all four sides, the way an icon
+            // sits centred in its own cell. _gx/_gy are that inset (device px).
             if (cell.Width > 12 && cell.Height > 12)
             {
+                _gx = cell.Width * 0.14;
+                _gy = cell.Height * 0.14;
                 double contentPxW = contentWdip * sxx, contentPxH = contentHdip * syy;
-                int cols = Math.Max(1, (int)Math.Ceiling(contentPxW / cell.Width - 0.15));
-                int rows = Math.Max(1, (int)Math.Ceiling(contentPxH / cell.Height - 0.15));
+                int cols = Math.Max(1, (int)Math.Ceiling((contentPxW + 2 * _gx) / cell.Width - 0.12));
+                int rows = Math.Max(1, (int)Math.Ceiling((contentPxH + 2 * _gy) / cell.Height - 0.12));
                 _blockW = cols * cell.Width;
                 _blockH = rows * cell.Height;
-                Width = _blockW / sxx;
-                Height = _blockH / syy;
+                Width = (_blockW - 2 * _gx) / sxx;
+                Height = (_blockH - 2 * _gy) / syy;
             }
             else
             {
                 _blockW = contentWdip * sxx; _blockH = contentHdip * syy;
+                _gx = _gy = 0;
                 Width = contentWdip;
                 Height = contentHdip;
             }
@@ -150,17 +153,18 @@ namespace DesktopBuckets.Views
         {
             var client = TileClientRectPx();
             if (client.IsEmpty) return Rect.Empty;
-            var snapped = grid.Snap(new Point(client.X + _gx, client.Y + _gy));
+            // the block extends a margin OUTSIDE the visible window on every side
+            var snapped = grid.Snap(new Point(client.X - _gx, client.Y - _gy));
             return new Rect(snapped.X, snapped.Y, _blockW, _blockH);
         }
 
-        /// <summary>Move the window so its inner block lands on the snapped grid cell.</summary>
+        /// <summary>Move the window so its (centred) block lands on the snapped grid cell.</summary>
         private void SnapInnerBlock(DesktopShell.IconGrid grid)
         {
             var client = TileClientRectPx();
             if (client.IsEmpty) return;
             var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
-            var blockTL = new Point(client.X + _gx, client.Y + _gy);
+            var blockTL = new Point(client.X - _gx, client.Y - _gy);
             var snapped = grid.Snap(blockTL);
             // moving the block by N client px == N screen px == N/dpi DIP on this monitor
             Left += (snapped.X - blockTL.X) / dpi.DpiScaleX;
