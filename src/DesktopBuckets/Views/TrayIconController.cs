@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.IO;
 using WinForms = System.Windows.Forms;
 
 namespace DesktopBuckets.Views
@@ -67,6 +68,13 @@ namespace DesktopBuckets.Views
 
         private static Icon LoadIcon()
         {
+            try
+            {
+                var icoPath = Path.Combine(AppContext.BaseDirectory, "Resources", "app.ico");
+                if (File.Exists(icoPath))
+                    return new Icon(icoPath, new Size(32, 32));
+            }
+            catch (Exception) { }
             try
             {
                 var exe = Environment.ProcessPath;

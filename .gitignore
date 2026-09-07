@@ -3,6 +3,11 @@ bin/
 obj/
 *.user
 
+# Publish + installer artifacts
+publish/
+installer/Output/
+*.exe
+
 # VS / Rider
 .vs/
 .idea/

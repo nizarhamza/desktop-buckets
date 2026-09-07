@@ -7,7 +7,22 @@ category tiles, but desktop-native and file-driven.
 
 Status: **v1 core working** (see [Roadmap](#roadmap)).
 
-![concept](docs/concept.png)
+---
+
+## Install
+
+Download **`DesktopBuckets-Setup-<version>.exe`** from the
+[latest release](https://github.com/nizarhamza/desktop-buckets/releases/latest) and run it.
+
+- Per-user install — **no admin prompt**.
+- Installs to `%LOCALAPPDATA%\Programs\Desktop Buckets`.
+- Registers in **Settings → Apps → Installed apps** as "Desktop Buckets"; uninstall from
+  there (or the Start-menu *Uninstall Desktop Buckets* shortcut) at any time.
+- Optional "start automatically when I sign in" checkbox (a per-user `Run` key,
+  removed on uninstall).
+- Uninstalling removes the app, the autostart entry and the "New Bucket" desktop
+  right-click verb, then asks whether to also delete settings/logs — **your bucket
+  folders and their files are never touched.**
 
 ---
 
@@ -90,6 +105,19 @@ dotnet run --project src/DesktopBuckets/DesktopBuckets.csproj
 ```
 
 The app starts in the system tray. Right-click the tray icon → **New bucket…**.
+
+### Building the installer
+
+Requires [Inno Setup 6](https://jrsoftware.org/isdl.php) (`winget install JRSoftware.InnoSetup`).
+
+```bash
+dotnet publish src/DesktopBuckets/DesktopBuckets.csproj -c Release -r win-x64 --self-contained true -p:DebugType=none -o publish
+iscc installer/DesktopBuckets.iss
+```
+
+Output: `installer/Output/DesktopBuckets-Setup-<version>.exe`.
+Pushing a `v*` tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml),
+which does the above on a runner and publishes a GitHub Release with the installer attached.
 
 ### Command-line
 
