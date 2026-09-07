@@ -38,10 +38,22 @@ namespace DesktopBuckets.Interop
                 var tl = CellTopLeft(col, row);
                 return new Rect(tl.X, tl.Y, CellDip.Width, CellDip.Height);
             }
+
+            /// <summary>Snap a point to the nearest grid cell's top-left (regular lattice).</summary>
+            public Point Snap(Point p)
+            {
+                var c = CellOf(p);
+                return CellTopLeft(c.col, c.row);
+            }
         }
 
-        /// <summary>Icon grid cell from the Windows spacing metric, DIP-scaled.</summary>
-        public static Size GridCellDip(Visual forWindow)
+        // EVERYTHING here works in desktop-listview CLIENT PIXELS — the one frame that
+        // icons (raw LVM_GETITEMPOSITION) and the tile (GetWindowRect minus the listview
+        // origin) both live in. No WPF DIP, no per-monitor DPI mixing.
+
+        /// <summary>Icon grid cell from the Windows spacing metric, in device pixels
+        /// (fallback only; the real pitch is measured from the icons).</summary>
+        public static Size GridCellPx()
         {
             int h = 0, v = 0;
             try
@@ -49,73 +61,50 @@ namespace DesktopBuckets.Interop
                 if (!NativeMethods.SystemParametersInfo(NativeMethods.SPI_ICONHORIZONTALSPACING, 0, ref h, 0)) h = 0;
                 if (!NativeMethods.SystemParametersInfo(NativeMethods.SPI_ICONVERTICALSPACING, 0, ref v, 0)) v = 0;
             }
-            catch { /* fallback */ }
-
-            if (h <= 0) h = 76;
-            if (v <= 0) v = 102;
-
-            double sx = 1, sy = 1;
-            try { var dpi = VisualTreeHelper.GetDpi(forWindow); sx = dpi.DpiScaleX; sy = dpi.DpiScaleY; }
             catch { }
-
-            return new Size(h / sx, v / sy);
+            if (h <= 0) h = 90;
+            if (v <= 0) v = 110;
+            return new Size(h, v);
         }
 
-        /// <summary>Real desktop grid, measured from the actual icons: origin = the
-        /// first column/row line, cell = the real pitch between lines (Windows spacing
-        /// metric only as a fallback).</summary>
-        public static IconGrid GetIconGrid(Visual forWindow)
+        /// <summary>Screen rect of the desktop icon listview (device px). Callers subtract
+        /// its origin to convert a window's screen rect into listview-client px.</summary>
+        public static bool TryGetListViewRect(out NativeMethods.RECT rect)
         {
-            var icons = DesktopIconCellsDip(forWindow);
-            var spi = GridCellDip(forWindow);
+            rect = default;
+            var lv = ResolveListView();
+            return lv != IntPtr.Zero && NativeMethods.GetWindowRect(lv, out rect);
+        }
+
+        /// <summary>Real desktop grid in client px: origin = first column/row line,
+        /// cell = measured pitch (spacing metric only as fallback).</summary>
+        public static IconGrid GetIconGrid(Visual? forWindow = null)
+        {
+            var icons = DesktopIconCells();
+            var spi = GridCellPx();
 
             if (icons.Count == 0)
-            {
-                var wa = SystemParameters.WorkArea;
-                return new IconGrid(new Point(wa.Left + 8, wa.Top + 8), spi, icons);
-            }
+                return new IconGrid(new Point(0, 0), spi, icons);
 
             var cols = ClusterAxis(icons.ConvertAll(r => r.X), 24);
             var rows = ClusterAxis(icons.ConvertAll(r => r.Y), 24);
 
-            double cw = MinGap(cols) ?? spi.Width;
-            double ch = MinGap(rows) ?? spi.Height;
-            cw = Clamp(cw, spi.Width * 0.55, spi.Width * 2.2);
-            ch = Clamp(ch, spi.Height * 0.55, spi.Height * 2.2);
+            double cw = MedianGap(cols) ?? spi.Width;
+            double ch = MedianGap(rows) ?? spi.Height;
+            cw = Clamp(cw, spi.Width * 0.55, spi.Width * 3.0);
+            ch = Clamp(ch, spi.Height * 0.55, spi.Height * 3.0);
 
-            return new IconGrid(new Point(cols[0], rows[0]), new Size(cw, ch), icons);
+            var grid = new IconGrid(new Point(cols[0], rows[0]), new Size(cw, ch), icons);
+            Services.Log.Info($"IconGrid(px): origin=({cols[0]:F0},{rows[0]:F0}) cell={cw:F0}x{ch:F0} " +
+                              $"cols={cols.Count} rows={rows.Count} icons={icons.Count}");
+            return grid;
         }
 
-        /// <summary>Snaps to the nearest actual icon column/row line, extrapolating by
-        /// the measured pitch when the tile is dragged beyond the icon block.</summary>
-        public static Point SnapToIconLattice(Point topLeft, Visual forWindow)
+        /// <summary>Snap a client-px top-left to the regular icon lattice.</summary>
+        public static Point SnapToIconLattice(Point clientTopLeftPx)
         {
-            var grid = GetIconGrid(forWindow);
-            if (!grid.Valid) return topLeft;
-
-            var cols = grid.Icons.Count > 0 ? ClusterAxis(grid.Icons.ConvertAll(r => r.X), 24) : null;
-            var rows = grid.Icons.Count > 0 ? ClusterAxis(grid.Icons.ConvertAll(r => r.Y), 24) : null;
-
-            double x = SnapAxis(topLeft.X, cols, grid.CellDip.Width);
-            double y = SnapAxis(topLeft.Y, rows, grid.CellDip.Height);
-            return new Point(x, y);
-        }
-
-        private static double SnapAxis(double v, System.Collections.Generic.List<double>? lines, double pitch)
-        {
-            if (lines == null || lines.Count == 0)
-                return v; // no reference — leave as-is
-
-            double nearest = lines[0], best = Math.Abs(v - lines[0]);
-            foreach (var a in lines)
-            {
-                double d = Math.Abs(v - a);
-                if (d < best) { best = d; nearest = a; }
-            }
-            if (best <= pitch * 0.75) return nearest;
-
-            double edge = v < lines[0] ? lines[0] : lines[^1];
-            return edge + Math.Round((v - edge) / pitch) * pitch;
+            var grid = GetIconGrid();
+            return grid.Valid ? grid.Snap(clientTopLeftPx) : clientTopLeftPx;
         }
 
         private static System.Collections.Generic.List<double> ClusterAxis(
@@ -124,230 +113,175 @@ namespace DesktopBuckets.Interop
             var sorted = new System.Collections.Generic.List<double>(values);
             sorted.Sort();
             var clusters = new System.Collections.Generic.List<double>();
+            var members = new System.Collections.Generic.List<double>();
             foreach (var v in sorted)
             {
                 if (clusters.Count == 0 || v - clusters[^1] > tolerance)
+                {
                     clusters.Add(v);
-                else
-                    clusters[^1] = (clusters[^1] + v) / 2;
+                    members.Add(v);
+                }
+                // keep the cluster anchored to its first (smallest) member — icons in a
+                // column share an X, so the first is the true line; averaging drifts it.
             }
             return clusters;
         }
 
-        private static double? MinGap(System.Collections.Generic.List<double> lines)
+        /// <summary>Median of adjacent-line gaps above a floor — robust to empty
+        /// columns/rows (which show up as 2×,3× gaps) and accidental tight pairs.</summary>
+        private static double? MedianGap(System.Collections.Generic.List<double> lines)
         {
-            double? min = null;
+            var gaps = new System.Collections.Generic.List<double>();
             for (int i = 1; i < lines.Count; i++)
             {
                 double g = lines[i] - lines[i - 1];
-                if (g > 12 && (min == null || g < min)) min = g;
+                if (g > 12) gaps.Add(g);
             }
-            return min;
+            if (gaps.Count == 0) return null;
+            gaps.Sort();
+
+            // Empty rows/cols create 2×/3× gaps; fold them down to the base pitch by
+            // taking the smallest cluster of gaps (those within 1.5× of the minimum).
+            double min = gaps[0];
+            var baseGaps = gaps.FindAll(g => g <= min * 1.5);
+            return baseGaps[baseGaps.Count / 2];
         }
 
         private static double Clamp(double v, double lo, double hi) => v < lo ? lo : v > hi ? hi : v;
-
-        /// <summary>Moves any desktop icons under <paramref name="tileFootprintDip"/> out
-        /// to the nearest free grid cells, so the tile sits in a clean gap. No-op if the
-        /// desktop uses auto-arrange (positions wouldn't stick) or the view can't be read.</summary>
-        public static void ClaimSpace(Rect tileFootprintDip, Visual forWindow)
-        {
-            IntPtr proc = IntPtr.Zero, remote = IntPtr.Zero;
-            try
-            {
-                var lv = ResolveListView();
-                if (lv == IntPtr.Zero) return;
-
-                int style = NativeMethods.GetWindowLong(lv, NativeMethods.GWL_STYLE);
-                if ((style & NativeMethods.LVS_AUTOARRANGE) != 0)
-                {
-                    Services.Log.Info("Desktop 'Auto arrange icons' is on — not displacing icons.");
-                    return;
-                }
-
-                if (!NativeMethods.GetWindowRect(lv, out var lvRect)) return;
-                int count = (int)NativeMethods.SendMessage(lv, NativeMethods.LVM_GETITEMCOUNT, IntPtr.Zero, IntPtr.Zero);
-                if (count <= 0 || count > 5000) return;
-
-                NativeMethods.GetWindowThreadProcessId(lv, out uint pid);
-                proc = NativeMethods.OpenProcess(
-                    NativeMethods.PROCESS_VM_OPERATION | NativeMethods.PROCESS_VM_READ | NativeMethods.PROCESS_VM_WRITE,
-                    false, pid);
-                if (proc == IntPtr.Zero) return;
-
-                remote = NativeMethods.VirtualAllocEx(proc, IntPtr.Zero, (IntPtr)8,
-                    NativeMethods.MEM_COMMIT | NativeMethods.MEM_RESERVE, NativeMethods.PAGE_READWRITE);
-                if (remote == IntPtr.Zero) return;
-
-                var dpi = VisualTreeHelper.GetDpi(forWindow);
-                double sx = dpi.DpiScaleX, sy = dpi.DpiScaleY;
-                var grid = GetIconGrid(forWindow);
-                if (!grid.Valid) return;
-
-                var posDip = new Point[count];
-                var buf = new byte[8];
-                for (int i = 0; i < count; i++)
-                {
-                    posDip[i] = new Point(double.NaN, double.NaN);
-                    if (NativeMethods.SendMessage(lv, NativeMethods.LVM_GETITEMPOSITION, (IntPtr)i, remote) == IntPtr.Zero) continue;
-                    if (!NativeMethods.ReadProcessMemory(proc, remote, buf, (IntPtr)8, out _)) continue;
-                    int x = BitConverter.ToInt32(buf, 0), y = BitConverter.ToInt32(buf, 4);
-                    posDip[i] = new Point((lvRect.Left + x) / sx, (lvRect.Top + y) / sy);
-                }
-
-                var fpInset = Inset(tileFootprintDip, 3);
-
-                var reserved = new HashSet<(int, int)>();
-                var tl = grid.CellOf(new Point(tileFootprintDip.Left, tileFootprintDip.Top));
-                var br = grid.CellOf(new Point(tileFootprintDip.Right, tileFootprintDip.Bottom));
-                for (int col = tl.col - 1; col <= br.col + 1; col++)
-                for (int row = tl.row - 1; row <= br.row + 1; row++)
-                    if (grid.CellRect(col, row).IntersectsWith(fpInset))
-                        reserved.Add((col, row));
-
-                // Sanity: a normal tile spans a handful of cells. A huge count means the
-                // grid math is off — don't rearrange the desktop on a bad reading.
-                if (reserved.Count == 0 || reserved.Count > 30) return;
-
-                var occupied = new HashSet<(int, int)>();
-                for (int i = 0; i < count; i++)
-                {
-                    if (double.IsNaN(posDip[i].X)) continue;
-                    var c = grid.CellOf(posDip[i]);
-                    if (!reserved.Contains(c)) occupied.Add(c);
-                }
-
-                var wa = SystemParameters.WorkArea;
-                int moved = 0;
-                var wb = new byte[8];
-
-                for (int i = 0; i < count && moved < 16; i++)
-                {
-                    if (double.IsNaN(posDip[i].X)) continue;
-                    var cur = grid.CellOf(posDip[i]);
-                    if (!reserved.Contains(cur)) continue;
-
-                    var target = FindFreeCell(grid, cur, reserved, occupied, wa, fpInset);
-                    if (target is not { } t) continue;
-                    occupied.Add(t);
-
-                    var dst = grid.CellTopLeft(t.col, t.row);
-                    int px = (int)Math.Round(dst.X * sx - lvRect.Left);
-                    int py = (int)Math.Round(dst.Y * sy - lvRect.Top);
-                    BitConverter.GetBytes(px).CopyTo(wb, 0);
-                    BitConverter.GetBytes(py).CopyTo(wb, 4);
-                    if (NativeMethods.WriteProcessMemory(proc, remote, wb, (IntPtr)8, out _))
-                    {
-                        NativeMethods.SendMessage(lv, NativeMethods.LVM_SETITEMPOSITION32, (IntPtr)i, remote);
-                        moved++;
-                    }
-                }
-
-                if (moved > 0)
-                    Services.Log.Info($"ClaimSpace: pushed {moved} desktop icon(s) clear of the bucket.");
-            }
-            catch (Exception ex) { Services.Log.Error("ClaimSpace failed", ex); }
-            finally
-            {
-                if (proc != IntPtr.Zero)
-                {
-                    if (remote != IntPtr.Zero)
-                        NativeMethods.VirtualFreeEx(proc, remote, IntPtr.Zero, NativeMethods.MEM_RELEASE);
-                    NativeMethods.CloseHandle(proc);
-                }
-            }
-        }
 
         private static Rect Inset(Rect r, double d) =>
             new(r.X + d, r.Y + d, Math.Max(1, r.Width - 2 * d), Math.Max(1, r.Height - 2 * d));
 
         // ---- live displacement while dragging a tile --------------------
 
-        /// <summary>Tracks which desktop icons a tile drag has pushed aside, so they can
-        /// slide back when the tile no longer covers their home cell, and be fully
-        /// restored when the bucket goes away.</summary>
+        /// <summary>Tracks a tile drag's effect on the desktop icons. Captures a STABLE
+        /// snapshot at drag start — the grid and every icon's home cell — so recomputing
+        /// as icons animate can't drift. Icons under the tile are "parked" elsewhere and
+        /// slid home when the tile moves off, or fully restored when it goes away.</summary>
         public sealed class DragDisplacement
         {
-            internal readonly System.Collections.Generic.Dictionary<int, (Point Home, Point Parked)> Items = new();
-            public bool Any => Items.Count > 0;
+            internal IconGrid Grid;
+            internal bool Captured;
+            // per icon index: its untouched home cell (never mutated during the drag)
+            internal readonly System.Collections.Generic.Dictionary<int, (int col, int row)> HomeCell = new();
+            // icons currently parked: index -> (homeDip, parkedCell)
+            internal readonly System.Collections.Generic.Dictionary<int, (Point Home, (int col, int row) Cell)> Parked = new();
+            public bool Any => Parked.Count > 0;
+
+            public void Reset() { Captured = false; HomeCell.Clear(); Parked.Clear(); }
         }
 
-        /// <summary>Recompute displacement for the tile's current footprint: park icons
-        /// that just came under it, un-park icons whose home is now clear. Animated.</summary>
-        public static void UpdateDragDisplace(DragDisplacement state, Rect footprintDip, Visual forWindow)
+        /// <summary>Prepare for a (possibly repeat) drag. Captures the grid once, and
+        /// refreshes each icon's TRUE home cell from its current resting position —
+        /// EXCEPT icons still parked from a previous drag, whose recorded home is kept
+        /// so they can still return there. Never clears the parked set.</summary>
+        public static IconGrid BeginDrag(DragDisplacement state, Visual? forWindow = null)
         {
-            WithListView(forWindow, (lv, proc, remote, lvRect, sx, sy) =>
+            WithListView((lv, proc, remote) =>
+            {
+                int count = (int)NativeMethods.SendMessage(lv, NativeMethods.LVM_GETITEMCOUNT, IntPtr.Zero, IntPtr.Zero);
+                if (count <= 0 || count > 5000) return;
+                var grid0 = GetIconGrid();
+                if (!grid0.Valid) return;
+                var pos0 = ReadPositions(lv, proc, remote, count);
+                state.Grid = grid0;
+                for (int i = 0; i < count; i++)
+                {
+                    if (state.Parked.ContainsKey(i)) continue;      // keep its real home
+                    if (!double.IsNaN(pos0[i].X))
+                        state.HomeCell[i] = grid0.CellOf(pos0[i]);
+                }
+                state.Captured = true;
+            });
+            return state.Grid;
+        }
+
+        /// <summary>Recompute displacement for the tile's client-px footprint against the
+        /// snapshot grid: park icons now under it, un-park icons whose home is clear again.</summary>
+        public static void UpdateDragDisplace(DragDisplacement state, Rect footprintPx, Visual? forWindow = null)
+        {
+            if (!state.Captured) BeginDrag(state);
+            if (!state.Captured) return;
+
+            WithListView((lv, proc, remote) =>
             {
                 if ((NativeMethods.GetWindowLong(lv, NativeMethods.GWL_STYLE) & NativeMethods.LVS_AUTOARRANGE) != 0)
                     return;
 
-                int count = (int)NativeMethods.SendMessage(lv, NativeMethods.LVM_GETITEMCOUNT, IntPtr.Zero, IntPtr.Zero);
-                if (count <= 0 || count > 5000) return;
-
-                var pos = ReadPositions(lv, proc, remote, count, lvRect, sx, sy);
-                var grid = GetIconGrid(forWindow);
-                if (!grid.Valid) return;
-
-                var fpInset = Inset(footprintDip, 3);
+                var grid = state.Grid;
+                var fpInset = Inset(footprintPx, 4);
                 var reserved = new HashSet<(int, int)>();
-                var tl = grid.CellOf(new Point(footprintDip.Left, footprintDip.Top));
-                var brc = grid.CellOf(new Point(footprintDip.Right, footprintDip.Bottom));
+                var tl = grid.CellOf(new Point(footprintPx.Left, footprintPx.Top));
+                var brc = grid.CellOf(new Point(footprintPx.Right, footprintPx.Bottom));
                 for (int c = tl.col - 1; c <= brc.col + 1; c++)
                 for (int r = tl.row - 1; r <= brc.row + 1; r++)
                     if (grid.CellRect(c, r).IntersectsWith(fpInset)) reserved.Add((c, r));
-                if (reserved.Count > 40) return;
+                if (reserved.Count == 0 || reserved.Count > 40) return;
 
                 var occupied = new HashSet<(int, int)>();
-                for (int i = 0; i < count; i++)
-                    if (!double.IsNaN(pos[i].X)) occupied.Add(grid.CellOf(pos[i]));
+                foreach (var kv in state.HomeCell)
+                    if (!state.Parked.ContainsKey(kv.Key) && !reserved.Contains(kv.Value))
+                        occupied.Add(kv.Value);
+                foreach (var kv in state.Parked)
+                    occupied.Add(kv.Value.Cell);
 
-                // un-park: home cell is clear again
-                foreach (var idx in new System.Collections.Generic.List<int>(state.Items.Keys))
+                int unparked = 0, parked = 0;
+
+                // Un-park icons whose home cell is clear again.
+                foreach (var idx in new System.Collections.Generic.List<int>(state.Parked.Keys))
                 {
-                    var it = state.Items[idx];
-                    if (!reserved.Contains(grid.CellOf(it.Home)))
+                    var home = state.HomeCell[idx];
+                    if (!reserved.Contains(home))
                     {
-                        IconAnimator.Move(lv, idx, it.Parked, it.Home, sx, sy, lvRect);
-                        occupied.Remove(grid.CellOf(it.Parked));
-                        occupied.Add(grid.CellOf(it.Home));
-                        state.Items.Remove(idx);
+                        var it = state.Parked[idx];
+                        IconAnimator.Move(lv, idx, grid.CellTopLeft(it.Cell.col, it.Cell.row), it.Home);
+                        occupied.Remove(it.Cell);
+                        occupied.Add(home);
+                        state.Parked.Remove(idx);
+                        unparked++;
                     }
                 }
 
-                // park: newly under the footprint
-                for (int i = 0; i < count && state.Items.Count < 24; i++)
+                // Park icons whose home cell is now under the tile.
+                foreach (var kv in state.HomeCell)
                 {
-                    if (double.IsNaN(pos[i].X) || state.Items.ContainsKey(i)) continue;
-                    var cell = grid.CellOf(pos[i]);
-                    if (!reserved.Contains(cell)) continue;
+                    int idx = kv.Key;
+                    var home = kv.Value;
+                    if (state.Parked.ContainsKey(idx) || !reserved.Contains(home)) continue;
+                    if (state.Parked.Count >= 30) break;
 
-                    var free = FindFreeCell(grid, cell, reserved, occupied, SystemParameters.WorkArea, fpInset);
+                    var free = FindFreeCell(grid, home, reserved, occupied, SystemParameters.WorkArea, fpInset);
                     if (free is not { } f) continue;
 
-                    var home = grid.CellTopLeft(cell.col, cell.row);
-                    var parked = grid.CellTopLeft(f.col, f.row);
-                    IconAnimator.Move(lv, i, pos[i], parked, sx, sy, lvRect);
-                    state.Items[i] = (home, parked);
-                    occupied.Remove(cell);
+                    var homePx = grid.CellTopLeft(home.col, home.row);
+                    IconAnimator.Move(lv, idx, homePx, grid.CellTopLeft(f.col, f.row));
+                    state.Parked[idx] = (homePx, f);
+                    occupied.Remove(home);
                     occupied.Add(f);
+                    parked++;
                 }
+                if (parked > 0 || unparked > 0)
+                    Services.Log.Info($"displace: reserved={reserved.Count} +parked={parked} -unparked={unparked} total={state.Parked.Count}");
             });
         }
 
-        /// <summary>Slide every displaced icon home (used when the tile is deleted or hidden).</summary>
-        public static void RestoreDisplacement(DragDisplacement state, Visual forWindow)
+        /// <summary>Slide every displaced icon home (tile deleted / hidden / drag cancelled).</summary>
+        public static void RestoreDisplacement(DragDisplacement state, Visual? forWindow = null)
         {
             if (!state.Any) return;
-            WithListView(forWindow, (lv, proc, remote, lvRect, sx, sy) =>
+            WithListView((lv, proc, remote) =>
             {
-                foreach (var kv in state.Items)
-                    IconAnimator.Move(lv, kv.Key, kv.Value.Parked, kv.Value.Home, sx, sy, lvRect);
-                state.Items.Clear();
+                foreach (var kv in state.Parked)
+                {
+                    var (home, cell) = kv.Value;
+                    IconAnimator.Move(lv, kv.Key, state.Grid.CellTopLeft(cell.col, cell.row), home);
+                }
+                state.Parked.Clear();
             });
         }
 
-        private static Point[] ReadPositions(IntPtr lv, IntPtr proc, IntPtr remote, int count,
-            NativeMethods.RECT lvRect, double sx, double sy)
+        /// <summary>Raw icon positions in listview-client px (NaN for unreadable items).</summary>
+        private static Point[] ReadPositions(IntPtr lv, IntPtr proc, IntPtr remote, int count)
         {
             var pos = new Point[count];
             var buf = new byte[8];
@@ -356,21 +290,18 @@ namespace DesktopBuckets.Interop
                 pos[i] = new Point(double.NaN, double.NaN);
                 if (NativeMethods.SendMessage(lv, NativeMethods.LVM_GETITEMPOSITION, (IntPtr)i, remote) == IntPtr.Zero) continue;
                 if (!NativeMethods.ReadProcessMemory(proc, remote, buf, (IntPtr)8, out _)) continue;
-                pos[i] = new Point((lvRect.Left + BitConverter.ToInt32(buf, 0)) / sx,
-                                   (lvRect.Top + BitConverter.ToInt32(buf, 4)) / sy);
+                pos[i] = new Point(BitConverter.ToInt32(buf, 0), BitConverter.ToInt32(buf, 4));
             }
             return pos;
         }
 
-        private static void WithListView(Visual forWindow,
-            Action<IntPtr, IntPtr, IntPtr, NativeMethods.RECT, double, double> body)
+        private static void WithListView(Action<IntPtr, IntPtr, IntPtr> body)
         {
             IntPtr proc = IntPtr.Zero, remote = IntPtr.Zero;
             try
             {
                 var lv = ResolveListView();
                 if (lv == IntPtr.Zero) return;
-                if (!NativeMethods.GetWindowRect(lv, out var lvRect)) return;
 
                 NativeMethods.GetWindowThreadProcessId(lv, out uint pid);
                 proc = NativeMethods.OpenProcess(
@@ -381,8 +312,7 @@ namespace DesktopBuckets.Interop
                     NativeMethods.MEM_COMMIT | NativeMethods.MEM_RESERVE, NativeMethods.PAGE_READWRITE);
                 if (remote == IntPtr.Zero) return;
 
-                var dpi = VisualTreeHelper.GetDpi(forWindow);
-                body(lv, proc, remote, lvRect, dpi.DpiScaleX, dpi.DpiScaleY);
+                body(lv, proc, remote);
             }
             catch (Exception ex) { Services.Log.Error("WithListView failed", ex); }
             finally
@@ -420,59 +350,20 @@ namespace DesktopBuckets.Interop
             return null;
         }
 
-        /// <summary>Each desktop icon's cell rectangle, in device-independent (screen) units.
-        /// Empty on any failure.</summary>
-        public static List<Rect> DesktopIconCellsDip(Visual forWindow)
+        /// <summary>Each desktop icon's cell rectangle, in listview-client px. Empty on failure.</summary>
+        public static List<Rect> DesktopIconCells()
         {
             var result = new List<Rect>();
-            IntPtr proc = IntPtr.Zero, remote = IntPtr.Zero;
-            try
+            var cell = GridCellPx();
+            WithListView((lv, proc, remote) =>
             {
-                var lv = ResolveListView();
-                if (lv == IntPtr.Zero) return result;
-                if (!NativeMethods.GetWindowRect(lv, out var lvRect)) return result;
-
                 int count = (int)NativeMethods.SendMessage(lv, NativeMethods.LVM_GETITEMCOUNT, IntPtr.Zero, IntPtr.Zero);
-                if (count <= 0 || count > 5000) return result;
-
-                NativeMethods.GetWindowThreadProcessId(lv, out uint pid);
-                proc = NativeMethods.OpenProcess(
-                    NativeMethods.PROCESS_VM_OPERATION | NativeMethods.PROCESS_VM_READ | NativeMethods.PROCESS_VM_WRITE,
-                    false, pid);
-                if (proc == IntPtr.Zero) return result;
-
-                remote = NativeMethods.VirtualAllocEx(proc, IntPtr.Zero, (IntPtr)8,
-                    NativeMethods.MEM_COMMIT | NativeMethods.MEM_RESERVE, NativeMethods.PAGE_READWRITE);
-                if (remote == IntPtr.Zero) return result;
-
-                var dpi = VisualTreeHelper.GetDpi(forWindow);
-                var cell = GridCellDip(forWindow);
-                var buf = new byte[8];
-
-                for (int i = 0; i < count; i++)
-                {
-                    if (NativeMethods.SendMessage(lv, NativeMethods.LVM_GETITEMPOSITION, (IntPtr)i, remote) == IntPtr.Zero)
-                        continue;
-                    if (!NativeMethods.ReadProcessMemory(proc, remote, buf, (IntPtr)8, out _))
-                        continue;
-
-                    int x = BitConverter.ToInt32(buf, 0);
-                    int y = BitConverter.ToInt32(buf, 4);
-                    double px = (lvRect.Left + x) / dpi.DpiScaleX;
-                    double py = (lvRect.Top + y) / dpi.DpiScaleY;
-                    result.Add(new Rect(px, py, cell.Width, cell.Height));
-                }
-            }
-            catch { result.Clear(); }
-            finally
-            {
-                if (proc != IntPtr.Zero)
-                {
-                    if (remote != IntPtr.Zero)
-                        NativeMethods.VirtualFreeEx(proc, remote, IntPtr.Zero, NativeMethods.MEM_RELEASE);
-                    NativeMethods.CloseHandle(proc);
-                }
-            }
+                if (count <= 0 || count > 5000) return;
+                var pos = ReadPositions(lv, proc, remote, count);
+                foreach (var p in pos)
+                    if (!double.IsNaN(p.X))
+                        result.Add(new Rect(p.X, p.Y, cell.Width, cell.Height));
+            });
             return result;
         }
 

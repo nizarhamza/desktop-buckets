@@ -27,17 +27,15 @@ namespace DesktopBuckets.Interop
         private static uint _pid;
         private static DateTime _lastActivity;
 
-        public static void Move(IntPtr listView, int index, Point fromDip, Point toDip,
-            double sx, double sy, NativeMethods.RECT lvRect)
+        /// <summary>Animate an icon from one listview-client-px point to another.</summary>
+        public static void Move(IntPtr listView, int index, Point fromClientPx, Point toClientPx)
         {
-            double fx = fromDip.X * sx - lvRect.Left, fy = fromDip.Y * sy - lvRect.Top;
-            double tx = toDip.X * sx - lvRect.Left, ty = toDip.Y * sy - lvRect.Top;
-
             _tweens[index] = new Tween
             {
                 ListView = listView,
                 Index = index,
-                FromX = fx, FromY = fy, ToX = tx, ToY = ty,
+                FromX = fromClientPx.X, FromY = fromClientPx.Y,
+                ToX = toClientPx.X, ToY = toClientPx.Y,
                 Start = DateTime.UtcNow,
                 DurationMs = 140,
             };

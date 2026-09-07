@@ -25,10 +25,10 @@
          allows it. -->
     <Border x:Name="Card"
             CornerRadius="12"
-            Background="#B0131519"
-            BorderBrush="#3DFFFFFF"
+            Background="#7A131519"
+            BorderBrush="#45FFFFFF"
             BorderThickness="1"
-            Padding="14"
+            Padding="8"
             MouseDown="Card_MouseDown">
 
         <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
@@ -41,7 +41,7 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Border Width="80" Height="80" Margin="3"
+                            <Border Width="70" Height="70" Margin="2"
                                     Background="Transparent"
                                     CornerRadius="8"
                                     ToolTip="{Binding Name}">
@@ -69,7 +69,7 @@
                                 </Border.ContextMenu>
 
                                 <StackPanel VerticalAlignment="Center">
-                                    <Grid Width="40" Height="40" HorizontalAlignment="Center">
+                                    <Grid Width="36" Height="36" HorizontalAlignment="Center">
                                         <Image Source="{Binding Icon}"
                                                RenderOptions.BitmapScalingMode="HighQuality"
                                                SnapsToDevicePixels="True" />
@@ -82,13 +82,13 @@
                                     </Grid>
                                     <TextBlock Text="{Binding Name}"
                                                Foreground="#FFECECEC"
-                                               FontSize="10"
+                                               FontSize="9"
                                                TextAlignment="Center"
                                                TextWrapping="Wrap"
                                                TextTrimming="CharacterEllipsis"
-                                               MaxWidth="74"
-                                               MaxHeight="26"
-                                               Margin="0,3,0,0" />
+                                               MaxWidth="66"
+                                               MaxHeight="20"
+                                               Margin="0,2,0,0" />
                                 </StackPanel>
                             </Border>
                         </DataTemplate>
@@ -107,10 +107,10 @@
 
             <StackPanel Orientation="Horizontal"
                         HorizontalAlignment="Center"
-                        Margin="0,6,0,0">
+                        Margin="0,3,0,0">
                 <TextBlock Text="{Binding Name}"
                            Foreground="#FFF3F3F3"
-                           FontSize="12"
+                           FontSize="11"
                            FontWeight="SemiBold"
                            TextTrimming="CharacterEllipsis"
                            MaxWidth="180" />

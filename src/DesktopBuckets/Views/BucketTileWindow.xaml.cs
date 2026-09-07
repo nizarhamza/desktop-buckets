@@ -28,6 +28,8 @@ namespace DesktopBuckets.Views
         private Point _dragWinStart;
         private double _dpiX = 1, _dpiY = 1;
         private (int col, int row) _lastDragCell = (int.MinValue, int.MinValue);
+        private DesktopShell.IconGrid _dragGrid;
+        private bool _dragGridValid;
 
         public BucketTileViewModel ViewModel => _vm;
 
@@ -96,23 +98,73 @@ namespace DesktopBuckets.Views
             catch (Exception ex) { Log.Error("RefitToContent failed", ex); }
         }
 
-        /// <summary>Rounds the window up to a whole number of desktop-icon grid cells,
-        /// so the tile always occupies an exact block (2×2, 1×2, 3×3, …).</summary>
-        private void SizeToWholeCells(double contentW, double contentH)
+        // Whole-cell block the tile occupies (for snap + displacement), plus a gutter the
+        // frosted rect overhangs into on every side so it reaches toward the neighbouring
+        // icons. All four are in DEVICE PIXELS (the icon/listview frame).
+        private double _gx, _gy, _blockW, _blockH;
+
+        /// <summary>Sizes the window to a whole-cell block (2×2, 1×2, 3×3, …) plus a gutter
+        /// overhang, so the visible tile hugs the surrounding icons. Content is DIP; the
+        /// grid cell is device px, so convert through the window DPI.</summary>
+        private void SizeToWholeCells(double contentWdip, double contentHdip)
         {
-            var cell = DesktopShell.GetIconGrid(this).CellDip;
+            var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+            double sxx = dpi.DpiScaleX, syy = dpi.DpiScaleY;
+            var cell = DesktopShell.GetIconGrid().CellDip; // px
+
+            // No gutter overhang: the window IS the whole-cell block, so a small bucket is
+            // a true 2×2 that lines up cell-for-cell with the icons. Round to whole cells
+            // with a tolerance so a slight content overflow doesn't jump to an extra cell.
+            _gx = _gy = 0;
             if (cell.Width > 12 && cell.Height > 12)
             {
-                int cols = Math.Max(1, (int)Math.Ceiling((contentW + 1) / cell.Width));
-                int rows = Math.Max(1, (int)Math.Ceiling((contentH + 1) / cell.Height));
-                Width = cols * cell.Width;
-                Height = rows * cell.Height;
+                double contentPxW = contentWdip * sxx, contentPxH = contentHdip * syy;
+                int cols = Math.Max(1, (int)Math.Ceiling(contentPxW / cell.Width - 0.15));
+                int rows = Math.Max(1, (int)Math.Ceiling(contentPxH / cell.Height - 0.15));
+                _blockW = cols * cell.Width;
+                _blockH = rows * cell.Height;
+                Width = _blockW / sxx;
+                Height = _blockH / syy;
             }
             else
             {
-                Width = contentW;
-                Height = contentH;
+                _blockW = contentWdip * sxx; _blockH = contentHdip * syy;
+                Width = contentWdip;
+                Height = contentHdip;
             }
+        }
+
+        /// <summary>The tile window's rect in listview-client px (Rect.Empty on failure).</summary>
+        private Rect TileClientRectPx()
+        {
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero) return Rect.Empty;
+            if (!Interop.NativeMethods.GetWindowRect(hwnd, out var wr)) return Rect.Empty;
+            if (!DesktopShell.TryGetListViewRect(out var lv)) return Rect.Empty;
+            return new Rect(wr.Left - lv.Left, wr.Top - lv.Top, wr.Right - wr.Left, wr.Bottom - wr.Top);
+        }
+
+        /// <summary>The whole-cell footprint in client px, snapped to the grid (Rect.Empty
+        /// on failure). Out-params give the raw block top-left for repositioning.</summary>
+        private Rect SnappedBlockPx(DesktopShell.IconGrid grid)
+        {
+            var client = TileClientRectPx();
+            if (client.IsEmpty) return Rect.Empty;
+            var snapped = grid.Snap(new Point(client.X + _gx, client.Y + _gy));
+            return new Rect(snapped.X, snapped.Y, _blockW, _blockH);
+        }
+
+        /// <summary>Move the window so its inner block lands on the snapped grid cell.</summary>
+        private void SnapInnerBlock(DesktopShell.IconGrid grid)
+        {
+            var client = TileClientRectPx();
+            if (client.IsEmpty) return;
+            var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+            var blockTL = new Point(client.X + _gx, client.Y + _gy);
+            var snapped = grid.Snap(blockTL);
+            // moving the block by N client px == N screen px == N/dpi DIP on this monitor
+            Left += (snapped.X - blockTL.X) / dpi.DpiScaleX;
+            Top += (snapped.Y - blockTL.Y) / dpi.DpiScaleY;
         }
 
         private static void OnDragOver(object? sender, DragEventArgs e)
@@ -237,12 +289,9 @@ namespace DesktopBuckets.Views
             _dragWinStart = new Point(Left, Top);
             _lastDragCell = (int.MinValue, int.MinValue);
             _dragging = true;
+            _dragGridValid = false;
             CaptureMouse();
         }
-
-        private Rect Footprint => new(Left, Top,
-            ActualWidth >= 1 ? ActualWidth : Width,
-            ActualHeight >= 1 ? ActualHeight : Height);
 
         private void OnDragMouseMove(object? sender, MouseEventArgs e)
         {
@@ -252,19 +301,25 @@ namespace DesktopBuckets.Views
             Left = _dragWinStart.X + (cur.X - _dragMouseStartPx.X) / _dpiX;
             Top = _dragWinStart.Y + (cur.Y - _dragMouseStartPx.Y) / _dpiY;
 
-            if (!_vm.Bucket.Config.SnapToGrid) return;
+            if (!_vm.Bucket.Config.SnapToGrid || _vm.Bucket.Config.Locked) return;
             if (Math.Abs(Left - _dragWinStart.X) < 5 && Math.Abs(Top - _dragWinStart.Y) < 5) return;
 
             try
             {
-                var grid = DesktopShell.GetIconGrid(this);
-                if (!grid.Valid) return;
-                var snapped = DesktopShell.SnapToIconLattice(new Point(Left, Top), this);
-                var cell = grid.CellOf(snapped);
+                if (!_dragGridValid)
+                {
+                    // one stable grid snapshot for the whole drag
+                    _dragGrid = DesktopShell.BeginDrag(_displaced);
+                    _dragGridValid = _dragGrid.Valid;
+                    if (!_dragGridValid) return;
+                }
+
+                var footprint = SnappedBlockPx(_dragGrid);
+                if (footprint.IsEmpty) return;
+                var cell = _dragGrid.CellOf(footprint.TopLeft);
                 if (cell == _lastDragCell) return;
                 _lastDragCell = cell;
-                DesktopShell.UpdateDragDisplace(_displaced,
-                    new Rect(snapped, new Size(Footprint.Width, Footprint.Height)), this);
+                DesktopShell.UpdateDragDisplace(_displaced, footprint);
             }
             catch (Exception ex) { Log.Error("drag displace failed", ex); }
         }
@@ -276,14 +331,13 @@ namespace DesktopBuckets.Views
             ReleaseMouseCapture();
 
             bool moved = Math.Abs(Left - _dragWinStart.X) > 6 || Math.Abs(Top - _dragWinStart.Y) > 6;
-            if (moved && _vm.Bucket.Config.SnapToGrid && !_vm.Bucket.Config.Locked)
+            if (moved && _vm.Bucket.Config.SnapToGrid && !_vm.Bucket.Config.Locked && _dragGridValid)
             {
                 try
                 {
-                    var p = DesktopShell.SnapToIconLattice(new Point(Left, Top), this);
-                    Left = p.X;
-                    Top = p.Y;
-                    DesktopShell.UpdateDragDisplace(_displaced, Footprint, this);
+                    SnapInnerBlock(_dragGrid);
+                    var fp = SnappedBlockPx(_dragGrid);
+                    if (!fp.IsEmpty) DesktopShell.UpdateDragDisplace(_displaced, fp);
                 }
                 catch (Exception ex) { Log.Error("drop snap failed", ex); }
             }
@@ -298,11 +352,15 @@ namespace DesktopBuckets.Views
             if (!_vm.Bucket.Config.SnapToGrid || _vm.Bucket.Config.Locked) return;
             try
             {
-                var p = DesktopShell.SnapToIconLattice(new Point(Left, Top), this);
-                Left = p.X;
-                Top = p.Y;
+                var grid = DesktopShell.GetIconGrid();
+                if (!grid.Valid) return;
+                SnapInnerBlock(grid);
                 if (claimSpace)
-                    DesktopShell.UpdateDragDisplace(_displaced, Footprint, this);
+                {
+                    DesktopShell.BeginDrag(_displaced);
+                    var fp = SnappedBlockPx(grid);
+                    if (!fp.IsEmpty) DesktopShell.UpdateDragDisplace(_displaced, fp);
+                }
             }
             catch (Exception ex) { Log.Error("Grid snap failed", ex); }
         }
