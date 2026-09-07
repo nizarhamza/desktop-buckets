@@ -21,7 +21,9 @@ namespace DesktopBuckets.Interop
                 throw new InvalidOperationException("Window handle not created yet; call from SourceInitialized or later.");
 
             int ex = NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE);
-            ex |= NativeMethods.WS_EX_NOACTIVATE | NativeMethods.WS_EX_TOOLWINDOW;
+            // No WS_EX_TOOLWINDOW: it suppresses the DWM blur-behind effect on some
+            // builds. ShowInTaskbar=false + WS_EX_NOACTIVATE keep it out of the way.
+            ex |= NativeMethods.WS_EX_NOACTIVATE;
             ex &= ~NativeMethods.WS_EX_APPWINDOW;
             NativeMethods.SetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE, ex);
 

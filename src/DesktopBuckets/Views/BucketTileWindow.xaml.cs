@@ -86,17 +86,33 @@ namespace DesktopBuckets.Views
             {
                 SizeToContent = SizeToContent.WidthAndHeight;
                 UpdateLayout();
-                double w = ActualWidth, h = ActualHeight;
                 SizeToContent = SizeToContent.Manual;
-                Width = w;
-                Height = h;
+                SizeToWholeCells(ActualWidth, ActualHeight);
 
                 var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
                 if (hwnd != IntPtr.Zero) DesktopWindowHelper.SendToBottom(hwnd);
-                AcrylicHelper.ApplyRoundedRegion(this, 12);
                 SnapToDesktopGrid(claimSpace: false);
             }
             catch (Exception ex) { Log.Error("RefitToContent failed", ex); }
+        }
+
+        /// <summary>Rounds the window up to a whole number of desktop-icon grid cells,
+        /// so the tile always occupies an exact block (2×2, 1×2, 3×3, …).</summary>
+        private void SizeToWholeCells(double contentW, double contentH)
+        {
+            var cell = DesktopShell.GetIconGrid(this).CellDip;
+            if (cell.Width > 12 && cell.Height > 12)
+            {
+                int cols = Math.Max(1, (int)Math.Ceiling((contentW + 1) / cell.Width));
+                int rows = Math.Max(1, (int)Math.Ceiling((contentH + 1) / cell.Height));
+                Width = cols * cell.Width;
+                Height = rows * cell.Height;
+            }
+            else
+            {
+                Width = contentW;
+                Height = contentH;
+            }
         }
 
         private static void OnDragOver(object? sender, DragEventArgs e)
@@ -158,10 +174,8 @@ namespace DesktopBuckets.Views
 
             if (SizeToContent != SizeToContent.Manual)
             {
-                double w = ActualWidth, h = ActualHeight;
                 SizeToContent = SizeToContent.Manual;
-                Width = w;
-                Height = h;
+                SizeToWholeCells(ActualWidth, ActualHeight);
             }
 
             PlaceWindow(_cascadeIndex);
@@ -169,8 +183,6 @@ namespace DesktopBuckets.Views
             // Line up with the desktop icon grid, but don't rearrange the user's icons
             // on startup — that only happens on an explicit drag.
             SnapToDesktopGrid(claimSpace: false);
-
-            AcrylicHelper.ApplyRoundedRegion(this, 12);
 
             var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
             if (hwnd != IntPtr.Zero) DesktopWindowHelper.SendToBottom(hwnd);

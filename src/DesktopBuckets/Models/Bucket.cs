@@ -84,9 +84,17 @@ namespace DesktopBuckets.Models
             foreach (var path in paths)
             {
                 var name = Path.GetFileName(path);
-                if (name.Equals(ConfigFileName, StringComparison.OrdinalIgnoreCase)) continue;
+                if (name.StartsWith('.')) continue;                                   // .bucket.json, dotfiles
+                if (name.EndsWith(".bak", StringComparison.OrdinalIgnoreCase)) continue;
+                if (name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)) continue;
                 if (name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase)) continue;
                 if (name.Equals("Thumbs.db", StringComparison.OrdinalIgnoreCase)) continue;
+                try
+                {
+                    var attr = File.GetAttributes(path);
+                    if (attr.HasFlag(FileAttributes.Hidden) || attr.HasFlag(FileAttributes.System)) continue;
+                }
+                catch { /* include it */ }
 
                 DateTime lastWrite;
                 try { lastWrite = File.GetLastWriteTimeUtc(path); }
