@@ -19,12 +19,12 @@
         <BooleanToVisibilityConverter x:Key="BoolVis" />
     </Window.Resources>
 
-    <!-- AcrylicHelper blurs + tints the whole window and clips it to this rounded
-         shape. The Border only adds the edge highlight + padding. -->
+    <!-- AcrylicHelper blurs the wallpaper behind the window and clips it round.
+         This fill is the dark frosting tint; the blur shows through its alpha. -->
     <Border x:Name="Card"
             CornerRadius="12"
-            Background="#14FFFFFF"
-            BorderBrush="#3AFFFFFF"
+            Background="#8C15151A"
+            BorderBrush="#40FFFFFF"
             BorderThickness="1"
             Padding="12"
             MouseDown="Card_MouseDown">

@@ -12,16 +12,16 @@ namespace DesktopBuckets.Interop
     /// </summary>
     internal static class AcrylicHelper
     {
-        // AABBGGRR — tint the acrylic adds on top of the blur (~63% black => readable).
-        private const uint TintColor = 0xA0000000;
-
         public static void Apply(Window window)
         {
             var hwnd = new WindowInteropHelper(window).Handle;
             if (hwnd == IntPtr.Zero) return;
 
-            if (!TrySetAccent(hwnd, NativeMethods.AccentState.ACCENT_ENABLE_ACRYLICBLURBEHIND, TintColor))
-                TrySetAccent(hwnd, NativeMethods.AccentState.ACCENT_ENABLE_BLURBEHIND, 0);
+            // Classic Aero blur-behind: reliably blurs on Win10/11. Recent builds
+            // ignore custom colours on the "acrylic" variant, so the dark tint lives
+            // in the window's own fill (BucketTileWindow.xaml) instead.
+            if (!TrySetAccent(hwnd, NativeMethods.AccentState.ACCENT_ENABLE_BLURBEHIND, 0))
+                TrySetAccent(hwnd, NativeMethods.AccentState.ACCENT_ENABLE_ACRYLICBLURBEHIND, 0);
 
             ApplyRoundedRegion(window, 12);
         }

@@ -21,6 +21,14 @@ namespace DesktopBuckets.Views
         private readonly int _cascadeIndex;
         private bool _suppressZOrder;
 
+        // manual drag + live desktop-icon displacement
+        private readonly DesktopShell.DragDisplacement _displaced = new();
+        private bool _dragging;
+        private Interop.NativeMethods.POINT _dragMouseStartPx;
+        private Point _dragWinStart;
+        private double _dpiX = 1, _dpiY = 1;
+        private (int col, int row) _lastDragCell = (int.MinValue, int.MinValue);
+
         public BucketTileViewModel ViewModel => _vm;
 
         public BucketTileWindow(BucketTileViewModel vm, IBucketHost host, int cascadeIndex)
@@ -59,6 +67,8 @@ namespace DesktopBuckets.Views
             ContentRendered += OnContentRendered;
             LocationChanged += OnLocationChanged;
             MouseDoubleClick += OnMouseDoubleClick;
+            MouseMove += OnDragMouseMove;
+            MouseLeftButtonUp += OnDragMouseUp;
             Drop += OnDrop;
             DragEnter += OnDragOver;
             DragOver += OnDragOver;
@@ -195,12 +205,12 @@ namespace DesktopBuckets.Views
         {
             _zOrderTimer.Stop();
             _savePositionTimer.Stop();
+            try { DesktopShell.RestoreDisplacement(_displaced, this); }
+            catch (Exception ex) { Log.Error("RestoreDisplacement on teardown failed", ex); }
             Close();
         }
 
         // ---- mouse: drag + open ------------------------------------
-
-        private DateTime _lastClaim = DateTime.MinValue;
 
         private void Card_MouseDown(object sender, MouseButtonEventArgs e)
         {
@@ -208,36 +218,79 @@ namespace DesktopBuckets.Views
             if (_vm.Bucket.Config.Locked) return;
             if (HitTestFile(e.OriginalSource) != null) return; // let the icon handle its own clicks
 
-            var before = new Point(Left, Top);
-            try { DragMove(); }
-            catch (InvalidOperationException) { return; /* button already released */ }
-
-            // A plain click (no real movement) must NOT snap or shuffle desktop icons.
-            if (Math.Abs(Left - before.X) < 6 && Math.Abs(Top - before.Y) < 6) return;
-
-            SnapToDesktopGrid(claimSpace: true);
+            var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+            _dpiX = dpi.DpiScaleX;
+            _dpiY = dpi.DpiScaleY;
+            Interop.NativeMethods.GetCursorPos(out _dragMouseStartPx);
+            _dragWinStart = new Point(Left, Top);
+            _lastDragCell = (int.MinValue, int.MinValue);
+            _dragging = true;
+            CaptureMouse();
         }
 
-        /// <param name="claimSpace">When true, push any desktop icons under the tile out
-        /// of the way (only on an explicit user drag, never on load).</param>
+        private Rect Footprint => new(Left, Top,
+            ActualWidth >= 1 ? ActualWidth : Width,
+            ActualHeight >= 1 ? ActualHeight : Height);
+
+        private void OnDragMouseMove(object? sender, MouseEventArgs e)
+        {
+            if (!_dragging) return;
+
+            Interop.NativeMethods.GetCursorPos(out var cur);
+            Left = _dragWinStart.X + (cur.X - _dragMouseStartPx.X) / _dpiX;
+            Top = _dragWinStart.Y + (cur.Y - _dragMouseStartPx.Y) / _dpiY;
+
+            if (!_vm.Bucket.Config.SnapToGrid) return;
+            if (Math.Abs(Left - _dragWinStart.X) < 5 && Math.Abs(Top - _dragWinStart.Y) < 5) return;
+
+            try
+            {
+                var grid = DesktopShell.GetIconGrid(this);
+                if (!grid.Valid) return;
+                var snapped = DesktopShell.SnapToIconLattice(new Point(Left, Top), this);
+                var cell = grid.CellOf(snapped);
+                if (cell == _lastDragCell) return;
+                _lastDragCell = cell;
+                DesktopShell.UpdateDragDisplace(_displaced,
+                    new Rect(snapped, new Size(Footprint.Width, Footprint.Height)), this);
+            }
+            catch (Exception ex) { Log.Error("drag displace failed", ex); }
+        }
+
+        private void OnDragMouseUp(object? sender, MouseButtonEventArgs e)
+        {
+            if (!_dragging) return;
+            _dragging = false;
+            ReleaseMouseCapture();
+
+            bool moved = Math.Abs(Left - _dragWinStart.X) > 6 || Math.Abs(Top - _dragWinStart.Y) > 6;
+            if (moved && _vm.Bucket.Config.SnapToGrid && !_vm.Bucket.Config.Locked)
+            {
+                try
+                {
+                    var p = DesktopShell.SnapToIconLattice(new Point(Left, Top), this);
+                    Left = p.X;
+                    Top = p.Y;
+                    DesktopShell.UpdateDragDisplace(_displaced, Footprint, this);
+                }
+                catch (Exception ex) { Log.Error("drop snap failed", ex); }
+            }
+
+            _vm.Bucket.SetPosition(Left, Top);
+        }
+
+        /// <param name="claimSpace">Also make desktop icons move aside (used by the
+        /// "Snap to desktop grid" toggle; not on load).</param>
         private void SnapToDesktopGrid(bool claimSpace)
         {
             if (!_vm.Bucket.Config.SnapToGrid || _vm.Bucket.Config.Locked) return;
             try
             {
-                var grid = DesktopShell.GetIconGrid(this);
-                var p = DesktopShell.SnapToIconGrid(new Point(Left, Top), grid);
+                var p = DesktopShell.SnapToIconLattice(new Point(Left, Top), this);
                 Left = p.X;
                 Top = p.Y;
-
-                if (claimSpace && DateTime.UtcNow - _lastClaim > TimeSpan.FromSeconds(1))
-                {
-                    _lastClaim = DateTime.UtcNow;
-                    var footprint = new Rect(Left, Top,
-                        ActualWidth >= 1 ? ActualWidth : Width,
-                        ActualHeight >= 1 ? ActualHeight : Height);
-                    DesktopShell.ClaimSpace(footprint, this);
-                }
+                if (claimSpace)
+                    DesktopShell.UpdateDragDisplace(_displaced, Footprint, this);
             }
             catch (Exception ex) { Log.Error("Grid snap failed", ex); }
         }
