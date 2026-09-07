@@ -200,14 +200,20 @@ namespace DesktopBuckets.Views
 
         // ---- mouse: drag + open ------------------------------------
 
+        private DateTime _lastClaim = DateTime.MinValue;
+
         private void Card_MouseDown(object sender, MouseButtonEventArgs e)
         {
             if (e.ChangedButton != MouseButton.Left || e.ClickCount != 1) return;
             if (_vm.Bucket.Config.Locked) return;
             if (HitTestFile(e.OriginalSource) != null) return; // let the icon handle its own clicks
 
+            var before = new Point(Left, Top);
             try { DragMove(); }
             catch (InvalidOperationException) { return; /* button already released */ }
+
+            // A plain click (no real movement) must NOT snap or shuffle desktop icons.
+            if (Math.Abs(Left - before.X) < 6 && Math.Abs(Top - before.Y) < 6) return;
 
             SnapToDesktopGrid(claimSpace: true);
         }
@@ -224,8 +230,9 @@ namespace DesktopBuckets.Views
                 Left = p.X;
                 Top = p.Y;
 
-                if (claimSpace)
+                if (claimSpace && DateTime.UtcNow - _lastClaim > TimeSpan.FromSeconds(1))
                 {
+                    _lastClaim = DateTime.UtcNow;
                     var footprint = new Rect(Left, Top,
                         ActualWidth >= 1 ? ActualWidth : Width,
                         ActualHeight >= 1 ? ActualHeight : Height);
