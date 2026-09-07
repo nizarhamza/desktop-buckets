@@ -14,6 +14,9 @@ namespace DesktopBuckets.ViewModels
 
         public ObservableCollection<BucketFileViewModel> Slots { get; } = new();
 
+        /// <summary>Raised after <see cref="Refresh"/> — the tile window relayouts / re-fits to it.</summary>
+        public event Action? Refreshed;
+
         public BucketTileViewModel(Bucket bucket)
         {
             Bucket = bucket;
@@ -53,6 +56,8 @@ namespace DesktopBuckets.ViewModels
             Raise(nameof(Name));
             Raise(nameof(OverflowCount));
             Raise(nameof(HasOverflow));
+
+            Refreshed?.Invoke();
         }
 
         private void RecomputeGrid()

@@ -62,6 +62,30 @@ namespace DesktopBuckets.Views
             Drop += OnDrop;
             DragEnter += OnDragOver;
             DragOver += OnDragOver;
+
+            // Content height changes a lot between an empty and a populated bucket;
+            // re-fit the window whenever the contents change so nothing gets clipped.
+            _vm.Refreshed += () => Dispatcher.BeginInvoke(
+                new Action(RefitToContent), DispatcherPriority.Loaded);
+        }
+
+        private void RefitToContent()
+        {
+            if (!IsLoaded) return;
+            try
+            {
+                SizeToContent = SizeToContent.WidthAndHeight;
+                UpdateLayout();
+                double w = ActualWidth, h = ActualHeight;
+                SizeToContent = SizeToContent.Manual;
+                Width = w;
+                Height = h;
+
+                var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                if (hwnd != IntPtr.Zero) DesktopWindowHelper.SendToBottom(hwnd);
+                SnapToDesktopGrid(maxRadius: 4);
+            }
+            catch (Exception ex) { Log.Error("RefitToContent failed", ex); }
         }
 
         private static void OnDragOver(object? sender, DragEventArgs e)
