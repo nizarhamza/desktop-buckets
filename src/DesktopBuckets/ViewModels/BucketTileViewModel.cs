@@ -1,0 +1,123 @@
+using System;
+using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using DesktopBuckets.Models;
+using DesktopBuckets.Services;
+
+namespace DesktopBuckets.ViewModels
+{
+    public sealed class BucketTileViewModel : ObservableObject
+    {
+        public Bucket Bucket { get; }
+
+        public ObservableCollection<BucketFileViewModel> Slots { get; } = new();
+
+        public BucketTileViewModel(Bucket bucket)
+        {
+            Bucket = bucket;
+            Refresh();
+        }
+
+        public string Name => Bucket.Name;
+
+        private int _columns = 2;
+        public int Columns { get => _columns; private set => Set(ref _columns, value); }
+
+        private int _rows = 2;
+        public int Rows { get => _rows; private set => Set(ref _rows, value); }
+
+        private bool _isEmpty = true;
+        public bool IsEmpty { get => _isEmpty; private set => Set(ref _isEmpty, value); }
+
+        private int _totalCount;
+        public int TotalCount { get => _totalCount; private set => Set(ref _totalCount, value); }
+
+        /// <summary>"+3 more" indicator when the bucket holds more files than it can show.</summary>
+        public int OverflowCount => Math.Max(0, TotalCount - Slots.Count);
+        public bool HasOverflow => OverflowCount > 0;
+
+        public void Refresh()
+        {
+            var all = Bucket.EnumerateFiles();
+            var visible = FileRankingService.SelectVisible(Bucket, all);
+
+            Slots.Clear();
+            foreach (var f in visible)
+                Slots.Add(new BucketFileViewModel(f));
+
+            TotalCount = all.Count;
+            IsEmpty = Slots.Count == 0;
+            RecomputeGrid();
+            Raise(nameof(Name));
+            Raise(nameof(OverflowCount));
+            Raise(nameof(HasOverflow));
+        }
+
+        private void RecomputeGrid()
+        {
+            int n = Math.Clamp(Bucket.Config.SlotCount, 1, 9);
+            int cols = (int)Math.Ceiling(Math.Sqrt(n));
+            int rows = (int)Math.Ceiling(n / (double)cols);
+            Columns = cols;
+            Rows = rows;
+        }
+
+        // ---- file actions ------------------------------------------------
+
+        public void OpenFile(BucketFileViewModel vm)
+        {
+            if (!File.Exists(vm.FullPath))
+            {
+                Refresh();
+                return;
+            }
+            try
+            {
+                Process.Start(new ProcessStartInfo(vm.FullPath) { UseShellExecute = true });
+                Bucket.RecordOpened(vm.RelativePath);
+                Refresh();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"OpenFile failed: {ex.Message}");
+            }
+        }
+
+        public void TogglePin(BucketFileViewModel vm)
+        {
+            if (Bucket.IsPinned(vm.RelativePath)) Bucket.Unpin(vm.RelativePath);
+            else Bucket.Pin(vm.RelativePath);
+            Refresh();
+        }
+
+        public void OpenContainingFolder()
+        {
+            try
+            {
+                Directory.CreateDirectory(Bucket.FolderPath);
+                Process.Start(new ProcessStartInfo(Bucket.FolderPath) { UseShellExecute = true });
+            }
+            catch (Exception ex) { Debug.WriteLine(ex.Message); }
+        }
+
+        public void RevealInExplorer(BucketFileViewModel vm)
+        {
+            try
+            {
+                if (File.Exists(vm.FullPath))
+                    Process.Start("explorer.exe", $"/select,\"{vm.FullPath}\"");
+                else
+                    OpenContainingFolder();
+            }
+            catch (Exception ex) { Debug.WriteLine(ex.Message); }
+        }
+
+        public void SetSlotCount(int n)
+        {
+            Bucket.SetSlotCount(n);
+            Refresh();
+        }
+    }
+}
