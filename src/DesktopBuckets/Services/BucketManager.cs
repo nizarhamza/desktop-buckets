@@ -44,7 +44,7 @@ namespace DesktopBuckets.Services
 
         public void Start()
         {
-            Log.Info("Starting.");
+            Log.Info($"Starting. packagedIdentity={Interop.NativeMethods.HasPackageIdentity()} dataDir={BucketStore.AppDataDir}");
             _store.Load();
             Log.Info($"Index lists {_store.Folders.Count} bucket folder(s).");
 

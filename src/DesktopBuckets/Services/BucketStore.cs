@@ -17,27 +17,39 @@ namespace DesktopBuckets.Services
             public List<string> Folders { get; set; } = new();
         }
 
-        // Built from USERPROFILE, not SpecialFolder.ApplicationData: when the exe runs
-        // with MSIX package identity (it is declared as a package's Application), the
-        // known-folder API redirects Roaming into ...\Packages\<id>\LocalCache\Roaming,
-        // which would split state across launch paths. USERPROFILE is never redirected.
-        public static string AppDataDir { get; } = Path.Combine(RoamingRoot(), "DesktopBuckets");
-
         public static string DefaultBucketRoot { get; } = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop Buckets");
 
-        private static string RoamingRoot()
-        {
-            var profile = Environment.GetEnvironmentVariable("USERPROFILE");
-            if (string.IsNullOrEmpty(profile))
-                profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        // App state lives in a hidden folder under the bucket root, NOT under
+        // %APPDATA%/%LOCALAPPDATA%: if the exe ever runs with MSIX package identity
+        // (it is declared as the shell package's Application), everything under
+        // AppData\{Roaming,Local} is path-redirected to a per-package folder, which
+        // silently splits state. %USERPROFILE%\Desktop Buckets never is.
+        public static string AppDataDir { get; } = ResolveAppDataDir();
 
-            if (!string.IsNullOrEmpty(profile))
+        private static string ResolveAppDataDir()
+        {
+            var dir = Path.Combine(DefaultBucketRoot, ".app");
+            try
             {
-                var roaming = Path.Combine(profile, "AppData", "Roaming");
-                if (Directory.Exists(roaming)) return roaming;
+                Directory.CreateDirectory(dir);
+                var di = new DirectoryInfo(dir);
+                if (!di.Attributes.HasFlag(FileAttributes.Hidden))
+                    di.Attributes |= FileAttributes.Hidden;
+
+                // One-time migration from the old %APPDATA%\DesktopBuckets location.
+                var old = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DesktopBuckets");
+                if (Directory.Exists(old))
+                    foreach (var name in new[] { "buckets.json", "update.json", "update-state.json" })
+                    {
+                        var src = Path.Combine(old, name);
+                        var dst = Path.Combine(dir, name);
+                        if (File.Exists(src) && !File.Exists(dst)) File.Copy(src, dst);
+                    }
             }
-            return Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            catch { /* fall through with whatever path we have */ }
+            return dir;
         }
 
         private static string IndexPath => Path.Combine(AppDataDir, "buckets.json");
@@ -53,6 +65,7 @@ namespace DesktopBuckets.Services
 
             _folders.Clear();
             var idx = JsonUtil.Read<Index>(IndexPath) ?? new Index();
+            Log.Info($"BucketStore: index={IndexPath} exists={File.Exists(IndexPath)} rawFolders={idx.Folders.Count}");
             foreach (var raw in idx.Folders)
             {
                 if (string.IsNullOrWhiteSpace(raw)) continue;
@@ -60,7 +73,10 @@ namespace DesktopBuckets.Services
                 if (_folders.Any(x => x.Equals(f, StringComparison.OrdinalIgnoreCase))) continue;
                 _folders.Add(f);
             }
+            int beforePrune = _folders.Count;
             Prune();
+            if (_folders.Count != beforePrune)
+                Log.Info($"BucketStore: Prune removed {beforePrune - _folders.Count} (folder missing).");
         }
 
         /// <summary>Drops entries whose folder no longer exists, then persists.</summary>

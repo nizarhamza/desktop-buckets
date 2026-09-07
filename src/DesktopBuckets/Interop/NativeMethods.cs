@@ -192,6 +192,16 @@ namespace DesktopBuckets.Interop
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool DeleteObject(IntPtr hObject);
 
+        [DllImport("kernel32.dll")]
+        public static extern int GetCurrentPackageFullName(ref int length, System.Text.StringBuilder? fullName);
+
+        public static bool HasPackageIdentity()
+        {
+            int len = 0;
+            int rc = GetCurrentPackageFullName(ref len, null);
+            return rc != 15700; // APPMODEL_ERROR_NO_PACKAGE
+        }
+
         // ---- Shell: icon extraction --------------------------------------
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
