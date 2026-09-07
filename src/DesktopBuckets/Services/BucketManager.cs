@@ -31,6 +31,7 @@ namespace DesktopBuckets.Services
         private TrayIconController? _tray;
         private UpdateService? _update;
         private UpdatePromptWindow? _updateWindow;
+        private SettingsWindow? _settingsWindow;
         private System.Windows.Threading.DispatcherTimer? _desktopWatch;
         private bool _desktopIconsVisible = true;
         private int _cascade;
@@ -53,6 +54,7 @@ namespace DesktopBuckets.Services
                 "v" + UpdateService.FormatVersion(version));
             _tray.NewBucketRequested += () => PromptCreateBucket();
             _tray.ShowAllRequested += ShowAll;
+            _tray.SettingsRequested += OpenSettings;
             _tray.ToggleShellRequested += ToggleShellIntegration;
             _tray.OpenFolderRequested += () => OpenPath(BucketStore.DefaultBucketRoot);
             _tray.CheckUpdatesRequested += () => _ = _update?.CheckAsync(userInitiated: true);
@@ -310,6 +312,24 @@ namespace DesktopBuckets.Services
                 e.Window.SetDesktopVisible(now);
         }
 
+        // ---- settings --------------------------------------------
+
+        public void OpenSettings()
+        {
+            if (_update == null) return;
+
+            if (_settingsWindow is { IsLoaded: true })
+            {
+                _settingsWindow.Activate();
+                return;
+            }
+
+            _settingsWindow = new SettingsWindow(_update, this);
+            _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+            _settingsWindow.Show();
+            _settingsWindow.Activate();
+        }
+
         // ---- updates ----------------------------------------------
 
         private void OnUpdateAvailable(UpdateInfo info, bool userInitiated)
@@ -342,6 +362,9 @@ namespace DesktopBuckets.Services
                     if (parent is not null && (parent.Length == 0 || parent == "%V")) parent = null;
                     PromptCreateBucket(parent);
                 }
+
+                if (args.Any(a => a.Equals("--settings", StringComparison.OrdinalIgnoreCase)))
+                    OpenSettings();
             });
         }
 
@@ -384,6 +407,9 @@ namespace DesktopBuckets.Services
 
             _desktopWatch?.Stop();
             _desktopWatch = null;
+
+            _settingsWindow?.Close();
+            _settingsWindow = null;
 
             foreach (var e in _entries.Values.ToList())
             {

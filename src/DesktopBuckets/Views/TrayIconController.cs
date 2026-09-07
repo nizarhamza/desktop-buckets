@@ -13,6 +13,7 @@ namespace DesktopBuckets.Views
 
         public event Action? NewBucketRequested;
         public event Action? ShowAllRequested;
+        public event Action? SettingsRequested;
         public event Action<bool>? ToggleShellRequested;
         public event Action? OpenFolderRequested;
         public event Action? CheckUpdatesRequested;
@@ -30,6 +31,8 @@ namespace DesktopBuckets.Views
                 (_, _) => NewBucketRequested?.Invoke()));
             menu.Items.Add(new WinForms.ToolStripMenuItem("Show all tiles", null,
                 (_, _) => ShowAllRequested?.Invoke()));
+            menu.Items.Add(new WinForms.ToolStripMenuItem("Settings…", null,
+                (_, _) => SettingsRequested?.Invoke()));
 
             menu.Items.Add(new WinForms.ToolStripSeparator());
 
@@ -59,7 +62,11 @@ namespace DesktopBuckets.Views
                 Icon = LoadIcon(),
                 ContextMenuStrip = menu,
             };
-            _icon.DoubleClick += (_, _) => ShowAllRequested?.Invoke();
+            // Left-click the tray icon -> Settings. (Right-click opens the menu.)
+            _icon.MouseClick += (_, e) =>
+            {
+                if (e.Button == WinForms.MouseButtons.Left) SettingsRequested?.Invoke();
+            };
         }
 
         public void SetShellChecked(bool value)

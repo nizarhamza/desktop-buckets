@@ -53,6 +53,9 @@ namespace DesktopBuckets
                 if (parent is not null && (parent.Length == 0 || parent == "%V")) parent = null;
                 Dispatcher.BeginInvoke(() => _manager.PromptCreateBucket(parent));
             }
+
+            if (e.Args.Any(a => a.Equals("--settings", StringComparison.OrdinalIgnoreCase)))
+                Dispatcher.BeginInvoke(() => _manager.OpenSettings());
         }
 
         private void OnUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)

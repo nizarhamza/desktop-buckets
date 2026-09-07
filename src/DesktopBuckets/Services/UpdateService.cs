@@ -38,6 +38,9 @@ namespace DesktopBuckets.Services
 
         public Version CurrentVersion => _current;
 
+        /// <summary>Live settings. Mutate, then call <see cref="ApplySettings"/> to persist and re-arm.</summary>
+        public UpdateConfig Config => _config;
+
         public UpdateService(Dispatcher dispatcher, Version currentVersion)
         {
             _dispatcher = dispatcher;
@@ -48,6 +51,23 @@ namespace DesktopBuckets.Services
 
         public void Start()
         {
+            StartPolling();
+
+            if (_config.Enabled && _config.CheckOnStartup)
+            {
+                _ = _dispatcher.BeginInvoke(new Action(async () =>
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(12)).ConfigureAwait(true);
+                    await CheckAsync(userInitiated: false).ConfigureAwait(true);
+                }), DispatcherPriority.ApplicationIdle);
+            }
+        }
+
+        private void StartPolling()
+        {
+            _timer?.Stop();
+            _timer = null;
+
             if (!_config.Enabled)
             {
                 Log.Info("Updater disabled by config.");
@@ -58,15 +78,21 @@ namespace DesktopBuckets.Services
             _timer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher) { Interval = interval };
             _timer.Tick += (_, _) => _ = CheckAsync(userInitiated: false);
             _timer.Start();
+        }
 
-            if (_config.CheckOnStartup)
-            {
-                _ = _dispatcher.BeginInvoke(new Action(async () =>
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(12)).ConfigureAwait(true);
-                    await CheckAsync(userInitiated: false).ConfigureAwait(true);
-                }), DispatcherPriority.ApplicationIdle);
-            }
+        /// <summary>Persist <see cref="Config"/> to <c>update.json</c> and re-arm polling.
+        /// Clears any "skip"/"remind me later" so a channel change can prompt again.</summary>
+        public void ApplySettings()
+        {
+            try { JsonUtil.Write(ConfigPath, _config); }
+            catch (Exception ex) { Log.Error("Saving update settings failed", ex); }
+
+            _promptedThisRun = false;
+            _state.SkippedVersion = null;
+            _state.SnoozeUntilUtc = DateTime.MinValue;
+            SaveState();
+
+            StartPolling();
         }
 
         public async Task CheckAsync(bool userInitiated)
