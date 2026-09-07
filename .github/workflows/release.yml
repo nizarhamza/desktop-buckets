@@ -2,15 +2,19 @@ name: release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-installer:
+  build:
     runs-on: windows-latest
 
     steps:
@@ -20,35 +24,74 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
+      - name: Determine version & channel
+        id: ver
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            V="${GITHUB_REF_NAME#v}"
+            echo "version=$V"            >> "$GITHUB_OUTPUT"
+            echo "channel=stable"        >> "$GITHUB_OUTPUT"
+            echo "rel_tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "rel_name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false"      >> "$GITHUB_OUTPUT"
+          else
+            V="0.1.${{ github.run_number }}"
+            echo "version=$V"            >> "$GITHUB_OUTPUT"
+            echo "channel=nightly"       >> "$GITHUB_OUTPUT"
+            echo "rel_tag=nightly"       >> "$GITHUB_OUTPUT"
+            echo "rel_name=$V"           >> "$GITHUB_OUTPUT"
+            echo "prerelease=true"       >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish (self-contained win-x64)
-        run: >
-          dotnet publish src/DesktopBuckets/DesktopBuckets.csproj
-          -c Release -r win-x64 --self-contained true
-          -p:DebugType=none -p:DebugSymbols=false
-          -o publish
+        shell: bash
+        run: |
+          dotnet publish src/DesktopBuckets/DesktopBuckets.csproj \
+            -c Release -r win-x64 --self-contained true \
+            -p:DebugType=none -p:DebugSymbols=false \
+            -p:Version=${{ steps.ver.outputs.version }} \
+            -o publish
 
       - name: Ensure Inno Setup
+        shell: pwsh
         run: |
           if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) {
             choco install innosetup --no-progress -y
           }
 
       - name: Build installer
-        run: iscc installer\DesktopBuckets.iss
+        shell: pwsh
+        run: iscc "/DMyAppVersion=${{ steps.ver.outputs.version }}" installer/DesktopBuckets.iss
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DesktopBuckets-Setup
+          name: DesktopBuckets-Setup-${{ steps.ver.outputs.version }}
           path: installer/Output/*.exe
 
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Publish nightly release
+        if: steps.ver.outputs.channel == 'nightly'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          TAG="${{ github.ref_name }}"
+          gh release delete nightly --yes --cleanup-tag || true
+          NOTES=$(printf 'Rolling build from `main` @ %s\n\n%s' \
+            "${GITHUB_SHA:0:7}" "$(git log -1 --pretty=%B)")
+          gh release create nightly installer/Output/*.exe \
+            --title "${{ steps.ver.outputs.rel_name }}" \
+            --notes "$NOTES" \
+            --prerelease \
+            --target "$GITHUB_SHA"
+
+      - name: Publish tagged release
+        if: steps.ver.outputs.channel == 'stable'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          TAG="${{ steps.ver.outputs.rel_tag }}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" installer/Output/*.exe --clobber
           else

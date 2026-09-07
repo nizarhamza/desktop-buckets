@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Windows;
 using DesktopBuckets.Models;
 using DesktopBuckets.ViewModels;
@@ -28,6 +29,8 @@ namespace DesktopBuckets.Services
         private readonly SingleInstance _single;
         private readonly Dictionary<string, Entry> _entries = new(StringComparer.OrdinalIgnoreCase);
         private TrayIconController? _tray;
+        private UpdateService? _update;
+        private UpdatePromptWindow? _updateWindow;
         private int _cascade;
         private bool _disposed;
 
@@ -42,12 +45,21 @@ namespace DesktopBuckets.Services
             _store.Load();
             Log.Info($"Index lists {_store.Folders.Count} bucket folder(s).");
 
-            _tray = new TrayIconController(ShellIntegration.IsRegistered);
+            var version = Assembly.GetEntryAssembly()?.GetName().Version ?? new Version(0, 0, 0, 0);
+
+            _tray = new TrayIconController(ShellIntegration.IsRegistered,
+                "v" + UpdateService.FormatVersion(version));
             _tray.NewBucketRequested += () => PromptCreateBucket();
             _tray.ShowAllRequested += ShowAll;
             _tray.ToggleShellRequested += ToggleShellIntegration;
             _tray.OpenFolderRequested += () => OpenPath(BucketStore.DefaultBucketRoot);
+            _tray.CheckUpdatesRequested += () => _ = _update?.CheckAsync(userInitiated: true);
             _tray.QuitRequested += QuitApp;
+
+            _update = new UpdateService(Application.Current.Dispatcher, version);
+            _update.UpdateAvailable += OnUpdateAvailable;
+            _update.UpToDateOrError += msg => _tray?.ShowBalloon("Desktop Buckets", msg);
+            _update.Start();
 
             _single.CommandReceived += OnForwardedCommand;
 
@@ -218,6 +230,25 @@ namespace DesktopBuckets.Services
             _store.Remove(folder);
         }
 
+        // ---- updates ----------------------------------------------
+
+        private void OnUpdateAvailable(UpdateInfo info, bool userInitiated)
+        {
+            _tray?.ShowBalloon("Desktop Buckets — update available",
+                $"Version {info.DisplayVersion} is ready. Opening the update window…");
+
+            if (_updateWindow is { IsLoaded: true })
+            {
+                _updateWindow.Activate();
+                return;
+            }
+
+            _updateWindow = new UpdatePromptWindow(_update!, info);
+            _updateWindow.Closed += (_, _) => _updateWindow = null;
+            _updateWindow.Show();
+            _updateWindow.Activate();
+        }
+
         // ---- misc --------------------------------------------------
 
         private void OnForwardedCommand(string[] args)
@@ -277,6 +308,8 @@ namespace DesktopBuckets.Services
                 e.Window.Teardown();
             }
             _entries.Clear();
+            _update?.Dispose();
+            _update = null;
             _tray?.Dispose();
             _tray = null;
         }

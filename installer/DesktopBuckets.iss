@@ -6,7 +6,9 @@
 ; can uninstall it from there like any other program.
 
 #define MyAppName "Desktop Buckets"
-#define MyAppVersion "0.1.0"
+#ifndef MyAppVersion
+  #define MyAppVersion "0.1.0"
+#endif
 #define MyAppPublisher "Desktop Buckets"
 #define MyAppURL "https://github.com/nizarhamza/desktop-buckets"
 #define MyAppExeName "DesktopBuckets.exe"
@@ -78,8 +80,11 @@ Root: HKCU; Subkey: "Software\Classes\DesktopBackground\shell\DesktopBuckets.New
   Flags: dontcreatekey uninsdeletekey
 
 [Run]
+; Interactive install: offer to launch on the finished page.
 Filename: "{app}\{#MyAppExeName}"; Description: "Start {#MyAppName} now"; \
   Flags: nowait postinstall skipifsilent
+; Silent install (the in-app updater path): relaunch automatically.
+Filename: "{app}\{#MyAppExeName}"; Flags: nowait runhidden skipifnotsilent
 
 [UninstallRun]
 ; Best-effort: let the app tear down its own shell integration first.

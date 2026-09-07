@@ -15,11 +15,16 @@ namespace DesktopBuckets.Views
         public event Action? ShowAllRequested;
         public event Action<bool>? ToggleShellRequested;
         public event Action? OpenFolderRequested;
+        public event Action? CheckUpdatesRequested;
         public event Action? QuitRequested;
 
-        public TrayIconController(bool shellEnabled)
+        public TrayIconController(bool shellEnabled, string versionLabel)
         {
             var menu = new WinForms.ContextMenuStrip();
+
+            var header = new WinForms.ToolStripMenuItem($"Desktop Buckets {versionLabel}") { Enabled = false };
+            menu.Items.Add(header);
+            menu.Items.Add(new WinForms.ToolStripSeparator());
 
             menu.Items.Add(new WinForms.ToolStripMenuItem("New bucket…", null,
                 (_, _) => NewBucketRequested?.Invoke()));
@@ -40,6 +45,9 @@ namespace DesktopBuckets.Views
                 (_, _) => OpenFolderRequested?.Invoke()));
 
             menu.Items.Add(new WinForms.ToolStripSeparator());
+
+            menu.Items.Add(new WinForms.ToolStripMenuItem("Check for updates…", null,
+                (_, _) => CheckUpdatesRequested?.Invoke()));
 
             menu.Items.Add(new WinForms.ToolStripMenuItem("Quit Desktop Buckets", null,
                 (_, _) => QuitRequested?.Invoke()));
