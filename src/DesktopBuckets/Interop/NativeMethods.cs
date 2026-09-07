@@ -107,8 +107,12 @@ namespace DesktopBuckets.Interop
         public struct RECT { public int Left, Top, Right, Bottom; }
 
         public const uint LVM_FIRST = 0x1000;
-        public const uint LVM_GETITEMCOUNT = LVM_FIRST + 4;      // 0x1004
-        public const uint LVM_GETITEMPOSITION = LVM_FIRST + 16;  // 0x1010
+        public const uint LVM_GETITEMCOUNT = LVM_FIRST + 4;        // 0x1004
+        public const uint LVM_GETITEMPOSITION = LVM_FIRST + 16;    // 0x1010
+        public const uint LVM_SETITEMPOSITION32 = LVM_FIRST + 49;  // 0x1031
+
+        public const int GWL_STYLE = -16;
+        public const int LVS_AUTOARRANGE = 0x0100;
 
         [DllImport("user32.dll", SetLastError = true)]
         public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
@@ -145,6 +149,38 @@ namespace DesktopBuckets.Interop
         [DllImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool ReadProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress, byte[] lpBuffer, IntPtr nSize, out IntPtr lpNumberOfBytesRead);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool WriteProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress, byte[] lpBuffer, IntPtr nSize, out IntPtr lpNumberOfBytesWritten);
+
+        // ---- DWM backdrop (acrylic "frosted glass") ---------------------
+
+        public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+        public const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
+        public const int DWMWCP_ROUND = 2;
+        public const int DWMSBT_TRANSIENTWINDOW = 3; // acrylic
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MARGINS { public int cxLeftWidth, cxRightWidth, cyTopHeight, cyBottomHeight; }
+
+        [DllImport("dwmapi.dll")]
+        public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
+        [DllImport("dwmapi.dll")]
+        public static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref MARGINS margins);
+
+        // Legacy blur fallback (Win10 / older Win11)
+        public enum AccentState { ACCENT_DISABLED = 0, ACCENT_ENABLE_BLURBEHIND = 3, ACCENT_ENABLE_ACRYLICBLURBEHIND = 4 }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct AccentPolicy { public AccentState AccentState; public int AccentFlags; public uint GradientColor; public int AnimationId; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct WindowCompositionAttributeData { public int Attribute; public IntPtr Data; public int SizeOfData; }
+
+        [DllImport("user32.dll")]
+        public static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttributeData data);
 
         // ---- Shell: icon extraction --------------------------------------
 

@@ -4,7 +4,7 @@
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
         Title="Bucket"
         WindowStyle="None"
-        AllowsTransparency="True"
+        AllowsTransparency="False"
         Background="Transparent"
         ShowInTaskbar="False"
         Topmost="False"
@@ -19,16 +19,15 @@
         <BooleanToVisibilityConverter x:Key="BoolVis" />
     </Window.Resources>
 
+    <!-- Translucent fill over the DWM acrylic backdrop applied in AcrylicHelper;
+         DWM rounds the window itself. -->
     <Border x:Name="Card"
             CornerRadius="12"
-            Background="#D91C1C1E"
-            BorderBrush="#26FFFFFF"
+            Background="#591E1E26"
+            BorderBrush="#2EFFFFFF"
             BorderThickness="1"
-            Padding="10"
+            Padding="12"
             MouseDown="Card_MouseDown">
-        <Border.Effect>
-            <DropShadowEffect BlurRadius="18" ShadowDepth="0" Opacity="0.45" Color="#000000" />
-        </Border.Effect>
 
         <StackPanel>
             <Grid x:Name="SlotArea">

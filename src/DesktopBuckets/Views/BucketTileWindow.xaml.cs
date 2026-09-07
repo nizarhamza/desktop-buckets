@@ -83,7 +83,7 @@ namespace DesktopBuckets.Views
 
                 var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
                 if (hwnd != IntPtr.Zero) DesktopWindowHelper.SendToBottom(hwnd);
-                SnapToDesktopGrid(maxRadius: 4);
+                SnapToDesktopGrid(claimSpace: false);
             }
             catch (Exception ex) { Log.Error("RefitToContent failed", ex); }
         }
@@ -132,6 +132,7 @@ namespace DesktopBuckets.Views
         private void OnSourceInitialized(object? sender, EventArgs e)
         {
             DesktopWindowHelper.MakeDesktopWidget(this);
+            AcrylicHelper.Apply(this);
         }
 
         /// <summary>
@@ -154,10 +155,9 @@ namespace DesktopBuckets.Views
 
             PlaceWindow(_cascadeIndex);
 
-            // Self-heal: if the saved spot now sits on desktop icons, nudge to a nearby
-            // free one — but only a short distance, so a tile never jumps across the screen
-            // on startup. A full-range search only runs when the user actually drags it.
-            SnapToDesktopGrid(maxRadius: 4);
+            // Line up with the desktop icon grid, but don't rearrange the user's icons
+            // on startup — that only happens on an explicit drag.
+            SnapToDesktopGrid(claimSpace: false);
 
             var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
             if (hwnd != IntPtr.Zero) DesktopWindowHelper.SendToBottom(hwnd);
@@ -206,21 +206,28 @@ namespace DesktopBuckets.Views
             try { DragMove(); }
             catch (InvalidOperationException) { return; /* button already released */ }
 
-            SnapToDesktopGrid();
+            SnapToDesktopGrid(claimSpace: true);
         }
 
-        private void SnapToDesktopGrid(int maxRadius = 15)
+        /// <param name="claimSpace">When true, push any desktop icons under the tile out
+        /// of the way (only on an explicit user drag, never on load).</param>
+        private void SnapToDesktopGrid(bool claimSpace)
         {
             if (!_vm.Bucket.Config.SnapToGrid || _vm.Bucket.Config.Locked) return;
             try
             {
-                var cell = DesktopShell.GridCellDip(this);
-                var size = new Size(
-                    ActualWidth >= 1 ? ActualWidth : Width,
-                    ActualHeight >= 1 ? ActualHeight : Height);
-                var p = DesktopShell.SnapAvoidingIcons(new Point(Left, Top), size, cell, this, maxRadius);
+                var grid = DesktopShell.GetIconGrid(this);
+                var p = DesktopShell.SnapToIconGrid(new Point(Left, Top), grid);
                 Left = p.X;
                 Top = p.Y;
+
+                if (claimSpace)
+                {
+                    var footprint = new Rect(Left, Top,
+                        ActualWidth >= 1 ? ActualWidth : Width,
+                        ActualHeight >= 1 ? ActualHeight : Height);
+                    DesktopShell.ClaimSpace(footprint, this);
+                }
             }
             catch (Exception ex) { Log.Error("Grid snap failed", ex); }
         }
@@ -336,7 +343,7 @@ namespace DesktopBuckets.Views
             {
                 _vm.Bucket.Config.SnapToGrid = snap.IsChecked;
                 _vm.Bucket.SaveConfig();
-                SnapToDesktopGrid();
+                if (snap.IsChecked) SnapToDesktopGrid(claimSpace: true);
             };
             menu.Items.Add(snap);
 
