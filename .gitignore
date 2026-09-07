@@ -8,6 +8,16 @@ publish/
 installer/Output/
 *.exe
 
+# Native / packaging build output
+native/ShellExt/out/
+packaging/out/
+packaging/Images/
+*.pfx
+*.msix
+*.obj
+*.lib
+*.exp
+
 # VS / Rider
 .vs/
 .idea/

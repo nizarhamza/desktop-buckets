@@ -53,6 +53,33 @@ jobs:
             -p:Version=${{ steps.ver.outputs.version }} \
             -o publish
 
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build shell-extension DLL
+        shell: cmd
+        run: native\ShellExt\build.cmd
+
+      - name: Build + sign the shell-extension package
+        shell: pwsh
+        env:
+          PFX_B64: ${{ secrets.SIGNING_PFX_BASE64 }}
+          PFX_PW: ${{ secrets.SIGNING_PFX_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PFX_B64)) {
+            Write-Host "::warning::SIGNING_PFX_BASE64 secret not set - shipping without the Windows 11 shell package (legacy 'Show more options' verb only)."
+            exit 0
+          }
+          [IO.File]::WriteAllBytes("packaging/DesktopBuckets-Dev.pfx", [Convert]::FromBase64String($env:PFX_B64))
+          & packaging/build-package.ps1 -Version "${{ steps.ver.outputs.version }}" `
+              -PfxPath "packaging/DesktopBuckets-Dev.pfx" -PfxPassword "$env:PFX_PW"
+          Copy-Item native/ShellExt/out/DesktopBuckets.ShellExt.dll publish/ -Force
+          Copy-Item packaging/out/DesktopBuckets.Package.msix        publish/ -Force
+          Copy-Item packaging/DesktopBuckets.cer                     publish/ -Force
+          Remove-Item packaging/DesktopBuckets-Dev.pfx -Force
+
       - name: Ensure Inno Setup
         shell: pwsh
         run: |

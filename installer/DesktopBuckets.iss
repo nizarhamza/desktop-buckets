@@ -58,6 +58,9 @@ Name: "autostart"; Description: "Start {#MyAppName} automatically when I sign in
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
 
 [Files]
+; The self-contained publish folder, which also carries the shell-extension
+; payload when it was built: DesktopBuckets.ShellExt.dll, DesktopBuckets.Package.msix,
+; DesktopBuckets.cer. The app enables/disables it on demand (one elevation prompt).
 Source: "{#PublishDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PublishDir}\*";               DestDir: "{app}"; Excludes: "{#MyAppExeName}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
@@ -72,8 +75,8 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
   ValueName: "DesktopBuckets"; ValueData: """{app}\{#MyAppExeName}"""; \
   Tasks: autostart; Flags: uninsdeletevalue
 
-; The app creates these HKCU verbs at runtime when the user enables the
-; "New Bucket" desktop right-click. Remove them on uninstall.
+; Legacy fallback verbs (used only on builds without the MSIX shell package).
+; Removed on uninstall whether or not they were ever created.
 Root: HKCU; Subkey: "Software\Classes\Directory\Background\shell\DesktopBuckets.NewBucket"; \
   Flags: dontcreatekey uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\DesktopBackground\shell\DesktopBuckets.NewBucket"; \
@@ -87,9 +90,10 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Start {#MyAppName} now"; \
 Filename: "{app}\{#MyAppExeName}"; Flags: nowait runhidden skipifnotsilent
 
 [UninstallRun]
-; Best-effort: let the app tear down its own shell integration first.
+; Tear down shell integration first: removes the MSIX shell package (per-user,
+; no elevation) or the legacy verbs, depending on what this build shipped.
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--unregister-shell"; \
-  Flags: runhidden skipifdoesntexist; RunOnceId: "UnregisterShell"
+  Flags: runhidden skipifdoesntexist waituntilterminated; RunOnceId: "UnregisterShell"
 
 [Code]
 procedure KillRunning;

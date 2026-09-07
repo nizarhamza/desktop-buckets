@@ -76,8 +76,11 @@ Read-only*, stored on the machine, never in the binary.
 - **Per-file context menu:** Open · Pin/Unpin · Open file location · Copy path.
 - **Tile context menu:** Open folder · Rename · Icon-slot count (1–9) · Lock position ·
   New bucket · toggle the desktop right-click entry · Delete (to Recycle Bin).
-- **Explorer right-click → "New Bucket"** via an HKCU-only registry verb (no DLL, no
-  elevation). Toggle it from the tray menu or a tile's context menu.
+- **Explorer right-click → "New Bucket"** in the **Windows 11 main context menu**
+  (desktop background and any folder), via a signed sparse-MSIX `IExplorerCommand`
+  handler (`native/ShellExt/`). Toggle it from the tray / a tile context menu — one
+  elevation prompt to trust the bundled dev certificate. Builds without the package
+  fall back to an HKCU verb under *Show more options*.
 
 ## Interaction reference
 
@@ -94,13 +97,22 @@ Read-only*, stored on the machine, never in the binary.
 
 ## Design decisions
 
-### Scope: Fences-style overlay, not a shell extension
+### Scope: Fences-style overlay, not a namespace extension
 
-v1 draws each bucket as its own borderless top-level window. A true shell namespace /
-icon-handler extension hooking `explorer.exe` is far more fragile across Windows updates
-and is out of scope. The "New Bucket" desktop menu item is a plain
-`HKCU\...\Directory\Background\shell` verb, not an entry inside the "New ▸" flyout (that
-needs a `ShellNew` handler, which is awkward for folders).
+The tiles are borderless top-level windows, not a shell **namespace / icon-handler**
+extension hooking `explorer.exe` (fragile across Windows updates, out of scope).
+
+The **context-menu** entry *is* a real shell extension: an `IExplorerCommand` COM
+handler (`native/ShellExt/dllmain.cpp`, C++/WRL) registered through a **signed sparse
+MSIX package** (`packaging/`) — the only supported route onto the Windows 11 main
+context menu. Explorer hosts the DLL in a COM surrogate; `Invoke` shells out to
+`DesktopBuckets.exe --new-bucket "<folder>"`. It is not inside the "New ▸" flyout (that
+needs a `ShellNew` handler, awkward for folders).
+
+Enabling it needs one elevation prompt to trust the bundled self-signed dev
+certificate (`packaging/DesktopBuckets.cer`). CI signs the package from the
+`SIGNING_PFX_BASE64` / `SIGNING_PFX_PASSWORD` repo secrets; without them the workflow
+still builds, shipping only the legacy fallback verb.
 
 ### Open questions from the spec — resolved (all revisitable)
 
@@ -181,7 +193,8 @@ src/DesktopBuckets/
     BucketWatcher.cs         debounced FileSystemWatcher
     FileRankingService.cs    pinned-first + recent-fill selection (pure, testable)
     IconService.cs           SHGetFileInfo → frozen ImageSource, cached
-    ShellIntegration.cs      HKCU "New Bucket" verb
+    ShellIntegration.cs      MSIX package register/unregister (+ legacy verb fallback)
+    UpdateService.cs         GitHub-release update poller + installer hand-off
     SingleInstance.cs        mutex + named-pipe command forwarding
     RecycleBin.cs            SHFileOperation wrapper
     JsonUtil.cs / Log.cs
@@ -191,7 +204,17 @@ src/DesktopBuckets/
   Views/
     BucketTileWindow.xaml(.cs)   the tile
     InputDialog.xaml(.cs)        name prompt
+    UpdatePromptWindow.xaml(.cs) update notice
     TrayIconController.cs        WinForms NotifyIcon
+
+native/ShellExt/
+  dllmain.cpp                IExplorerCommand handler (C++/WRL) -> DesktopBuckets.ShellExt.dll
+  ShellExt.def / build.cmd
+packaging/
+  AppxManifest.xml           sparse MSIX manifest (windows.fileExplorerContextMenus)
+  make-logos.ps1             generates the package's PNG logos
+  build-package.ps1          makeappx pack + signtool sign
+  DesktopBuckets.cer         public dev cert (the private .pfx is a CI secret)
 ```
 
 ---

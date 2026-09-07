@@ -161,12 +161,21 @@ namespace DesktopBuckets.Services
                 if (enabled) ShellIntegration.Register();
                 else ShellIntegration.Unregister();
             }
+            catch (OperationCanceledException)
+            {
+                // User declined the elevation prompt — nothing changed, no need to shout.
+            }
             catch (Exception ex)
             {
                 MessageBox.Show($"Could not update the desktop right-click menu:\n{ex.Message}",
                     "Desktop Buckets", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
-            _tray?.SetShellChecked(ShellIntegration.IsRegistered);
+
+            bool now = ShellIntegration.IsRegistered;
+            _tray?.SetShellChecked(now);
+            if (enabled && now && ShellIntegration.PackagedModeAvailable)
+                _tray?.ShowBalloon("Desktop Buckets",
+                    "“New Bucket” added to the desktop right-click menu.");
         }
 
         // ---- bucket wiring -------------------------------------------
