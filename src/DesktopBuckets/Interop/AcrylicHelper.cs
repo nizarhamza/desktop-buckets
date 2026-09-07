@@ -2,42 +2,69 @@ using System;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Media;
 
 namespace DesktopBuckets.Interop
 {
-    /// <summary>Gives a borderless window a frosted-glass (acrylic blur) backdrop with
-    /// rounded corners. Tries the Windows 11 DWM system backdrop first, then the legacy
-    /// acrylic blur; no-ops if neither is available.</summary>
+    /// <summary>
+    /// Gives a layered (AllowsTransparency=True) borderless window a frosted-glass
+    /// blur-behind with a dark tint, and clips it to rounded corners. Best-effort.
+    /// </summary>
     internal static class AcrylicHelper
     {
+        // AABBGGRR — tint the acrylic adds on top of the blur (~63% black => readable).
+        private const uint TintColor = 0xA0000000;
+
         public static void Apply(Window window)
         {
             var hwnd = new WindowInteropHelper(window).Handle;
             if (hwnd == IntPtr.Zero) return;
 
-            // Extend the DWM frame across the whole client area so transparent WPF
-            // regions show the composited backdrop.
-            var margins = new NativeMethods.MARGINS { cxLeftWidth = -1, cxRightWidth = -1, cyTopHeight = -1, cyBottomHeight = -1 };
-            NativeMethods.DwmExtendFrameIntoClientArea(hwnd, ref margins);
+            if (!TrySetAccent(hwnd, NativeMethods.AccentState.ACCENT_ENABLE_ACRYLICBLURBEHIND, TintColor))
+                TrySetAccent(hwnd, NativeMethods.AccentState.ACCENT_ENABLE_BLURBEHIND, 0);
 
-            int round = NativeMethods.DWMWCP_ROUND;
-            NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
-
-            int backdrop = NativeMethods.DWMSBT_TRANSIENTWINDOW; // acrylic
-            int hr = NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DWMWA_SYSTEMBACKDROP_TYPE, ref backdrop, sizeof(int));
-
-            if (hr != 0)
-                ApplyLegacyAcrylic(hwnd);
+            ApplyRoundedRegion(window, 12);
         }
 
-        private static void ApplyLegacyAcrylic(IntPtr hwnd)
+        /// <summary>Clips the window (and therefore the blur) to a rounded rectangle.
+        /// Call again whenever the window resizes.</summary>
+        public static void ApplyRoundedRegion(Window window, double cornerRadiusDip)
+        {
+            try
+            {
+                var hwnd = new WindowInteropHelper(window).Handle;
+                if (hwnd == IntPtr.Zero) return;
+
+                var src = HwndSource.FromHwnd(hwnd);
+                var m = src?.CompositionTarget?.TransformToDevice ?? Matrix.Identity;
+                double sx = m.M11 == 0 ? 1 : m.M11;
+                double sy = m.M22 == 0 ? 1 : m.M22;
+
+                int w = (int)Math.Round(window.ActualWidth * sx);
+                int h = (int)Math.Round(window.ActualHeight * sy);
+                if (w <= 0 || h <= 0) return;
+
+                int r = (int)Math.Round(cornerRadiusDip * sx) * 2;
+                IntPtr rgn = NativeMethods.CreateRoundRectRgn(0, 0, w + 1, h + 1, r, r);
+                if (rgn != IntPtr.Zero)
+                {
+                    // Window takes ownership of the region; do not DeleteObject it.
+                    if (NativeMethods.SetWindowRgn(hwnd, rgn, true) == 0)
+                        NativeMethods.DeleteObject(rgn);
+                }
+            }
+            catch (Exception ex) { Services.Log.Error("ApplyRoundedRegion failed", ex); }
+        }
+
+        private static bool TrySetAccent(IntPtr hwnd, NativeMethods.AccentState state, uint gradientColor)
         {
             try
             {
                 var accent = new NativeMethods.AccentPolicy
                 {
-                    AccentState = NativeMethods.AccentState.ACCENT_ENABLE_ACRYLICBLURBEHIND,
-                    GradientColor = 0x33000000, // AABBGGRR — ~20% black tint
+                    AccentState = state,
+                    AccentFlags = 0, // the Border draws our edge; no system border
+                    GradientColor = gradientColor,
                 };
                 int size = Marshal.SizeOf(accent);
                 IntPtr ptr = Marshal.AllocHGlobal(size);
@@ -50,11 +77,15 @@ namespace DesktopBuckets.Interop
                         Data = ptr,
                         SizeOfData = size,
                     };
-                    NativeMethods.SetWindowCompositionAttribute(hwnd, ref data);
+                    return NativeMethods.SetWindowCompositionAttribute(hwnd, ref data) != 0;
                 }
                 finally { Marshal.FreeHGlobal(ptr); }
             }
-            catch (Exception ex) { Services.Log.Error("Legacy acrylic failed", ex); }
+            catch (Exception ex)
+            {
+                Services.Log.Error("SetWindowCompositionAttribute failed", ex);
+                return false;
+            }
         }
     }
 }

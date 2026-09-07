@@ -83,6 +83,7 @@ namespace DesktopBuckets.Views
 
                 var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
                 if (hwnd != IntPtr.Zero) DesktopWindowHelper.SendToBottom(hwnd);
+                AcrylicHelper.ApplyRoundedRegion(this, 12);
                 SnapToDesktopGrid(claimSpace: false);
             }
             catch (Exception ex) { Log.Error("RefitToContent failed", ex); }
@@ -158,6 +159,8 @@ namespace DesktopBuckets.Views
             // Line up with the desktop icon grid, but don't rearrange the user's icons
             // on startup — that only happens on an explicit drag.
             SnapToDesktopGrid(claimSpace: false);
+
+            AcrylicHelper.ApplyRoundedRegion(this, 12);
 
             var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
             if (hwnd != IntPtr.Zero) DesktopWindowHelper.SendToBottom(hwnd);

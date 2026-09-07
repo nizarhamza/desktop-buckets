@@ -182,6 +182,16 @@ namespace DesktopBuckets.Interop
         [DllImport("user32.dll")]
         public static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttributeData data);
 
+        [DllImport("gdi32.dll")]
+        public static extern IntPtr CreateRoundRectRgn(int nLeft, int nTop, int nRight, int nBottom, int nWidthEllipse, int nHeightEllipse);
+
+        [DllImport("user32.dll")]
+        public static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, [MarshalAs(UnmanagedType.Bool)] bool bRedraw);
+
+        [DllImport("gdi32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool DeleteObject(IntPtr hObject);
+
         // ---- Shell: icon extraction --------------------------------------
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]

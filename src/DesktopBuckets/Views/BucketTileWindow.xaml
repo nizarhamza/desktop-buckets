@@ -4,7 +4,7 @@
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
         Title="Bucket"
         WindowStyle="None"
-        AllowsTransparency="False"
+        AllowsTransparency="True"
         Background="Transparent"
         ShowInTaskbar="False"
         Topmost="False"
@@ -19,12 +19,12 @@
         <BooleanToVisibilityConverter x:Key="BoolVis" />
     </Window.Resources>
 
-    <!-- Translucent fill over the DWM acrylic backdrop applied in AcrylicHelper;
-         DWM rounds the window itself. -->
+    <!-- AcrylicHelper blurs + tints the whole window and clips it to this rounded
+         shape. The Border only adds the edge highlight + padding. -->
     <Border x:Name="Card"
             CornerRadius="12"
-            Background="#591E1E26"
-            BorderBrush="#2EFFFFFF"
+            Background="#14FFFFFF"
+            BorderBrush="#3AFFFFFF"
             BorderThickness="1"
             Padding="12"
             MouseDown="Card_MouseDown">
