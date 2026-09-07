@@ -17,11 +17,28 @@ namespace DesktopBuckets.Services
             public List<string> Folders { get; set; } = new();
         }
 
-        public static string AppDataDir { get; } = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DesktopBuckets");
+        // Built from USERPROFILE, not SpecialFolder.ApplicationData: when the exe runs
+        // with MSIX package identity (it is declared as a package's Application), the
+        // known-folder API redirects Roaming into ...\Packages\<id>\LocalCache\Roaming,
+        // which would split state across launch paths. USERPROFILE is never redirected.
+        public static string AppDataDir { get; } = Path.Combine(RoamingRoot(), "DesktopBuckets");
 
         public static string DefaultBucketRoot { get; } = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop Buckets");
+
+        private static string RoamingRoot()
+        {
+            var profile = Environment.GetEnvironmentVariable("USERPROFILE");
+            if (string.IsNullOrEmpty(profile))
+                profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+            if (!string.IsNullOrEmpty(profile))
+            {
+                var roaming = Path.Combine(profile, "AppData", "Roaming");
+                if (Directory.Exists(roaming)) return roaming;
+            }
+            return Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        }
 
         private static string IndexPath => Path.Combine(AppDataDir, "buckets.json");
 
