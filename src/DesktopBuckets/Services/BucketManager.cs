@@ -31,6 +31,8 @@ namespace DesktopBuckets.Services
         private TrayIconController? _tray;
         private UpdateService? _update;
         private UpdatePromptWindow? _updateWindow;
+        private System.Windows.Threading.DispatcherTimer? _desktopWatch;
+        private bool _desktopIconsVisible = true;
         private int _cascade;
         private bool _disposed;
 
@@ -63,6 +65,23 @@ namespace DesktopBuckets.Services
 
             _single.CommandReceived += OnForwardedCommand;
 
+            try
+            {
+                _desktopIconsVisible = Interop.DesktopShell.DesktopIconsVisible();
+                _desktopWatch = new System.Windows.Threading.DispatcherTimer(
+                    System.Windows.Threading.DispatcherPriority.Background, Application.Current.Dispatcher)
+                {
+                    Interval = TimeSpan.FromSeconds(1),
+                };
+                _desktopWatch.Tick += (_, _) => SyncDesktopVisibility();
+                _desktopWatch.Start();
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Desktop-visibility watch setup failed", ex);
+                _desktopIconsVisible = true;
+            }
+
             foreach (var folder in _store.Folders.ToList())
                 TryLoadBucket(folder);
 
@@ -80,8 +99,14 @@ namespace DesktopBuckets.Services
             var name = InputDialog.Ask("New bucket", "Bucket name", "New Bucket", "Create");
             if (string.IsNullOrWhiteSpace(name)) return;
 
+            // A bucket is represented by its tile, never by a folder icon sitting next
+            // to it. So a "New Bucket" from the desktop (or with no context) always
+            // lands in the buckets root; only an explicit right-click inside some other
+            // real folder creates the bucket there.
             string folder;
-            if (!string.IsNullOrWhiteSpace(parentFolder) && Directory.Exists(parentFolder))
+            if (!string.IsNullOrWhiteSpace(parentFolder)
+                && Directory.Exists(parentFolder)
+                && !IsDesktopFolder(parentFolder!))
             {
                 var safe = Bucket.SanitizeName(name!);
                 folder = Path.Combine(parentFolder!, safe);
@@ -199,6 +224,8 @@ namespace DesktopBuckets.Services
         {
             if (_entries.ContainsKey(bucket.FolderPath)) return;
 
+            HideFolderIfOnDesktop(bucket);
+
             var vm = new BucketTileViewModel(bucket);
             var window = new BucketTileWindow(vm, this, _cascade++);
             var watcher = CreateWatcher(bucket);
@@ -211,6 +238,39 @@ namespace DesktopBuckets.Services
             };
 
             window.Show();
+            window.SetDesktopVisible(_desktopIconsVisible);
+        }
+
+        /// <summary>If a bucket's backing folder sits directly on the desktop, hide it so
+        /// the tile is its only representation (no duplicate folder icon).</summary>
+        private static void HideFolderIfOnDesktop(Bucket bucket)
+        {
+            try
+            {
+                var parent = Path.GetDirectoryName(bucket.FolderPath.TrimEnd(Path.DirectorySeparatorChar));
+                if (parent == null || !IsDesktopFolder(parent)) return;
+
+                var attrs = File.GetAttributes(bucket.FolderPath);
+                if (!attrs.HasFlag(FileAttributes.Hidden))
+                    File.SetAttributes(bucket.FolderPath, attrs | FileAttributes.Hidden);
+            }
+            catch (Exception ex) { Log.Error("HideFolderIfOnDesktop failed", ex); }
+        }
+
+        private static bool IsDesktopFolder(string path)
+        {
+            string norm = Bucket.Normalize(path);
+            foreach (var f in new[]
+                     {
+                         Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                         Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory),
+                     })
+            {
+                if (!string.IsNullOrEmpty(f) &&
+                    string.Equals(Bucket.Normalize(f), norm, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
         }
 
         private BucketWatcher CreateWatcher(Bucket bucket)
@@ -237,6 +297,17 @@ namespace DesktopBuckets.Services
             entry.Window.Teardown();
             _entries.Remove(folder);
             _store.Remove(folder);
+        }
+
+        private void SyncDesktopVisibility()
+        {
+            if (_disposed) return;
+            bool now = Interop.DesktopShell.DesktopIconsVisible();
+            if (now == _desktopIconsVisible) return;
+
+            _desktopIconsVisible = now;
+            foreach (var e in _entries.Values)
+                e.Window.SetDesktopVisible(now);
         }
 
         // ---- updates ----------------------------------------------
@@ -310,6 +381,9 @@ namespace DesktopBuckets.Services
         {
             if (_disposed) return;
             _disposed = true;
+
+            _desktopWatch?.Stop();
+            _desktopWatch = null;
 
             foreach (var e in _entries.Values.ToList())
             {

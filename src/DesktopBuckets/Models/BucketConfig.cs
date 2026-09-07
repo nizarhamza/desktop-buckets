@@ -33,6 +33,9 @@ namespace DesktopBuckets.Models
         /// <summary>When true the tile cannot be dragged and the folder is not renamed on rename.</summary>
         public bool Locked { get; set; }
 
+        /// <summary>Snap the tile to the desktop icon grid when it is moved.</summary>
+        public bool SnapToGrid { get; set; } = true;
+
         [JsonIgnore]
         public bool HasStoredPosition => X.HasValue && Y.HasValue;
     }

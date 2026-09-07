@@ -72,7 +72,11 @@ Read-only*, stored on the machine, never in the binary.
 - **Desktop-widget behaviour:** borderless, transparent, `WS_EX_NOACTIVATE`, held at the
   bottom of the Z-order so ordinary windows always sit on top while the tile stays
   visible on "Show desktop". Never steals focus.
-- **Drag & drop** files from Explorer onto a tile to copy them into the bucket.
+- **Drag & drop** from Explorer onto a tile **moves** the item into the bucket (hold
+  **Ctrl** to copy instead).
+- **Desktop-aware** — tiles snap to the desktop icon grid when moved, and hide/show
+  together with the desktop's "Show desktop icons" toggle. A bucket is represented only
+  by its tile: its backing folder is never a second icon on the desktop.
 - **Per-file context menu:** Open · Pin/Unpin · Open file location · Copy path.
 - **Tile context menu:** Open folder · Rename · Icon-slot count (1–9) · Lock position ·
   New bucket · toggle the desktop right-click entry · Delete (to Recycle Bin).
@@ -90,8 +94,8 @@ Read-only*, stored on the machine, never in the binary.
 | Double-click the tile body / label | Opens the bucket folder in File Explorer |
 | Right-click a tile icon | Pin / Unpin / reveal / copy path |
 | Right-click the tile body | Rename, delete, slots, lock, shell toggle, new bucket |
-| Drag the tile body | Moves the tile (unless locked); position is persisted |
-| Drop files on the tile | Copies them into the bucket folder |
+| Drag the tile body | Moves the tile; snaps to the desktop grid; position persisted |
+| Drop files on the tile | **Moves** them into the bucket (Ctrl = copy) |
 
 ---
 
@@ -123,6 +127,14 @@ still builds, shipping only the legacy fallback verb.
 | Pin limit / order | Unlimited pins; only the top *N* show; order = order pinned (oldest first), new pins appended | Predictable; an old reliable pin is never bumped off by a newer one |
 | Missing / moved file | Dropped from the tile silently, next candidate promoted. A pinned-but-missing file stays in `.bucket.json` (so a briefly-offline path can reappear) and is pruned on next startup if still gone | No surprises, tolerant of network paths |
 | Slot count | Default 4; 1–9 per bucket via the tile context menu | — |
+
+### The tile is the bucket, not a folder
+
+New buckets are created in `%USERPROFILE%\Desktop Buckets\` — never as a folder on the
+actual desktop — so there is never a duplicate folder icon next to the tile. If a
+bucket's backing folder *is* found sitting directly on the desktop (e.g. you made a
+bucket there, or moved the folder), the app marks that folder hidden so the tile stays
+its sole representation. "Open bucket folder" still opens it.
 
 ### Storage
 

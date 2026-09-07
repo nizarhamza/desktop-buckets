@@ -40,7 +40,7 @@ namespace DesktopBuckets.Views
             };
             _zOrderTimer.Tick += (_, _) =>
             {
-                if (_suppressZOrder || !IsLoaded) return;
+                if (_suppressZOrder || !IsLoaded || !IsVisible) return;
                 var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
                 if (hwnd != IntPtr.Zero) DesktopWindowHelper.SendToBottom(hwnd);
             };
@@ -60,12 +60,19 @@ namespace DesktopBuckets.Views
             LocationChanged += OnLocationChanged;
             MouseDoubleClick += OnMouseDoubleClick;
             Drop += OnDrop;
-            DragEnter += (_, e) =>
-            {
-                e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop)
-                    ? DragDropEffects.Copy : DragDropEffects.None;
-                e.Handled = true;
-            };
+            DragEnter += OnDragOver;
+            DragOver += OnDragOver;
+        }
+
+        private static void OnDragOver(object? sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+                e.Effects = (e.KeyStates & DragDropKeyStates.ControlKey) != 0
+                    ? DragDropEffects.Copy      // Ctrl held -> copy
+                    : DragDropEffects.Move;     // default -> move into the bucket
+            else
+                e.Effects = DragDropEffects.None;
+            e.Handled = true;
         }
 
         // ---- placement --------------------------------------------------
@@ -137,6 +144,21 @@ namespace DesktopBuckets.Views
 
         public void RefreshFromDisk() => _vm.Refresh();
 
+        /// <summary>Follow the desktop's "Show desktop icons" toggle.</summary>
+        public void SetDesktopVisible(bool visible)
+        {
+            if (visible)
+            {
+                if (!IsVisible) Show();
+                var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                if (hwnd != IntPtr.Zero) DesktopWindowHelper.SendToBottom(hwnd);
+            }
+            else if (IsVisible)
+            {
+                Hide();
+            }
+        }
+
         public void Teardown()
         {
             _zOrderTimer.Stop();
@@ -153,7 +175,22 @@ namespace DesktopBuckets.Views
             if (HitTestFile(e.OriginalSource) != null) return; // let the icon handle its own clicks
 
             try { DragMove(); }
-            catch (InvalidOperationException) { /* button already released */ }
+            catch (InvalidOperationException) { return; /* button already released */ }
+
+            SnapToDesktopGrid();
+        }
+
+        private void SnapToDesktopGrid()
+        {
+            if (!_vm.Bucket.Config.SnapToGrid || _vm.Bucket.Config.Locked) return;
+            try
+            {
+                var cell = DesktopShell.GridCellDip(this);
+                var p = DesktopShell.SnapToGrid(new Point(Left, Top), cell);
+                Left = p.X;
+                Top = p.Y;
+            }
+            catch (Exception ex) { Log.Error("Grid snap failed", ex); }
         }
 
         private void OnMouseDoubleClick(object? sender, MouseButtonEventArgs e)
@@ -257,6 +294,20 @@ namespace DesktopBuckets.Views
             }
             menu.Items.Add(slots);
 
+            var snap = new MenuItem
+            {
+                Header = "Snap to desktop grid",
+                IsCheckable = true,
+                IsChecked = _vm.Bucket.Config.SnapToGrid,
+            };
+            snap.Click += (_, _) =>
+            {
+                _vm.Bucket.Config.SnapToGrid = snap.IsChecked;
+                _vm.Bucket.SaveConfig();
+                SnapToDesktopGrid();
+            };
+            menu.Items.Add(snap);
+
             var locked = new MenuItem
             {
                 Header = "Lock position",
@@ -306,39 +357,69 @@ namespace DesktopBuckets.Views
             var dest = _vm.Bucket.FolderPath;
             Directory.CreateDirectory(dest);
 
+            bool copy = (e.KeyStates & DragDropKeyStates.ControlKey) != 0;
+            int moved = 0, copied = 0, failed = 0;
+
             foreach (var src in paths)
             {
                 try
                 {
-                    if (Directory.Exists(src)) continue; // v1: files only
-                    if (!File.Exists(src)) continue;
+                    bool isDir = Directory.Exists(src);
+                    if (!isDir && !File.Exists(src)) continue;
 
-                    var targetPath = Path.Combine(dest, Path.GetFileName(src));
                     if (string.Equals(Path.GetDirectoryName(src), dest, StringComparison.OrdinalIgnoreCase))
-                        continue; // already here
+                        continue; // already in this bucket
 
-                    targetPath = UniqueName(targetPath);
-                    File.Copy(src, targetPath);
+                    var target = UniqueName(Path.Combine(dest, Path.GetFileName(src)), isDir);
+
+                    if (isDir)
+                    {
+                        if (copy) CopyDirectory(src, target);
+                        else Directory.Move(src, target);
+                    }
+                    else
+                    {
+                        if (copy) File.Copy(src, target);
+                        else File.Move(src, target);
+                    }
+
+                    if (copy) copied++; else moved++;
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Drop copy failed: {ex.Message}");
+                    failed++;
+                    Log.Error($"Drop {(copy ? "copy" : "move")} failed for '{src}'", ex);
                 }
             }
+
+            if (moved + copied + failed > 0)
+                Log.Info($"Drop on '{_vm.Bucket.Name}': {moved} moved, {copied} copied, {failed} failed.");
+
             _vm.Refresh();
             e.Handled = true;
         }
 
-        private static string UniqueName(string path)
+        private static void CopyDirectory(string src, string dst)
         {
-            if (!File.Exists(path)) return path;
+            Directory.CreateDirectory(dst);
+            foreach (var f in Directory.GetFiles(src))
+                File.Copy(f, Path.Combine(dst, Path.GetFileName(f)));
+            foreach (var d in Directory.GetDirectories(src))
+                CopyDirectory(d, Path.Combine(dst, Path.GetFileName(d)));
+        }
+
+        private static string UniqueName(string path, bool isDir = false)
+        {
+            bool Exists(string p) => isDir ? Directory.Exists(p) : File.Exists(p);
+            if (!Exists(path) && !(isDir ? File.Exists(path) : Directory.Exists(path))) return path;
+
             var dir = Path.GetDirectoryName(path)!;
-            var name = Path.GetFileNameWithoutExtension(path);
-            var ext = Path.GetExtension(path);
+            var name = isDir ? Path.GetFileName(path) : Path.GetFileNameWithoutExtension(path);
+            var ext = isDir ? string.Empty : Path.GetExtension(path);
             int n = 2;
             string candidate;
             do { candidate = Path.Combine(dir, $"{name} ({n++}){ext}"); }
-            while (File.Exists(candidate));
+            while (File.Exists(candidate) || Directory.Exists(candidate));
             return candidate;
         }
     }

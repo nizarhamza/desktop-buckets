@@ -60,6 +60,47 @@ namespace DesktopBuckets.Interop
         [DllImport("user32.dll")]
         public static extern IntPtr GetDesktopWindow();
 
+        // ---- Finding the desktop icon view (Progman / WorkerW) ----------
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        public static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetShellWindow();
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr childAfter, string? className, string? windowName);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool IsWindowVisible(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool IsWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool EnumChildWindows(IntPtr hWndParent, EnumWindowsProc callback, IntPtr lParam);
+
+        public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        public static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
+
+        // ---- Desktop icon grid spacing (pixels) -----------------------
+
+        public const uint SPI_ICONHORIZONTALSPACING = 0x000D;
+        public const uint SPI_ICONVERTICALSPACING = 0x0018;
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool SystemParametersInfo(uint uiAction, uint uiParam, ref int pvParam, uint fWinIni);
+
         // ---- Shell: icon extraction --------------------------------------
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
