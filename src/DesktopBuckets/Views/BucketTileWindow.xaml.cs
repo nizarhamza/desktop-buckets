@@ -130,6 +130,9 @@ namespace DesktopBuckets.Views
 
             PlaceWindow(_cascadeIndex);
 
+            // Self-heal: if the saved spot now sits on desktop icons, slide to a free one.
+            SnapToDesktopGrid();
+
             var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
             if (hwnd != IntPtr.Zero) DesktopWindowHelper.SendToBottom(hwnd);
 
@@ -186,7 +189,10 @@ namespace DesktopBuckets.Views
             try
             {
                 var cell = DesktopShell.GridCellDip(this);
-                var p = DesktopShell.SnapToGrid(new Point(Left, Top), cell);
+                var size = new Size(
+                    ActualWidth >= 1 ? ActualWidth : Width,
+                    ActualHeight >= 1 ? ActualHeight : Height);
+                var p = DesktopShell.SnapAvoidingIcons(new Point(Left, Top), size, cell, this);
                 Left = p.X;
                 Top = p.Y;
             }

@@ -48,6 +48,109 @@ namespace DesktopBuckets.Interop
             return new Point(sx, sy);
         }
 
+        /// <summary>Snaps to the grid, then — if the tile's footprint would land on any
+        /// desktop icons — walks outward, cell by cell, to the nearest grid slot that is
+        /// clear of icons. Icons are never moved. Falls back to the plain snap if the icon
+        /// positions can't be read or nothing is free nearby.</summary>
+        public static Point SnapAvoidingIcons(Point desiredTopLeft, Size tileDip, Size cell, Visual forWindow)
+        {
+            var basePt = SnapToGrid(desiredTopLeft, cell);
+            if (cell.Width <= 0 || cell.Height <= 0) return basePt;
+
+            var icons = DesktopIconCellsDip(forWindow);
+            if (icons.Count == 0) return basePt;
+
+            Rect Footprint(Point p) => new Rect(
+                p.X + 2, p.Y + 2,
+                Math.Max(1, tileDip.Width - 4), Math.Max(1, tileDip.Height - 4));
+
+            bool Clear(Point p)
+            {
+                var fp = Footprint(p);
+                foreach (var ic in icons)
+                    if (fp.IntersectsWith(ic)) return false;
+                return true;
+            }
+
+            if (Clear(basePt)) return basePt;
+
+            var wa = SystemParameters.WorkArea;
+            for (int radius = 1; radius <= 15; radius++)
+            {
+                for (int dy = -radius; dy <= radius; dy++)
+                for (int dx = -radius; dx <= radius; dx++)
+                {
+                    if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != radius) continue; // ring only
+                    var cand = new Point(basePt.X + dx * cell.Width, basePt.Y + dy * cell.Height);
+                    if (cand.X < wa.Left - 2 || cand.Y < wa.Top - 2) continue;
+                    if (cand.X + tileDip.Width > wa.Right + 2) continue;
+                    if (cand.Y + tileDip.Height > wa.Bottom + 2) continue;
+                    if (Clear(cand)) return cand;
+                }
+            }
+            return basePt;
+        }
+
+        /// <summary>Each desktop icon's cell rectangle, in device-independent units
+        /// (screen coordinates). Empty on any failure.</summary>
+        public static System.Collections.Generic.List<Rect> DesktopIconCellsDip(Visual forWindow)
+        {
+            var result = new System.Collections.Generic.List<Rect>();
+            IntPtr proc = IntPtr.Zero, remote = IntPtr.Zero;
+            try
+            {
+                var lv = ResolveListView();
+                if (lv == IntPtr.Zero) return result;
+
+                if (!NativeMethods.GetWindowRect(lv, out var lvRect)) return result;
+
+                int count = (int)NativeMethods.SendMessage(lv, NativeMethods.LVM_GETITEMCOUNT, IntPtr.Zero, IntPtr.Zero);
+                if (count <= 0 || count > 5000) return result;
+
+                NativeMethods.GetWindowThreadProcessId(lv, out uint pid);
+                proc = NativeMethods.OpenProcess(
+                    NativeMethods.PROCESS_VM_OPERATION | NativeMethods.PROCESS_VM_READ | NativeMethods.PROCESS_VM_WRITE,
+                    false, pid);
+                if (proc == IntPtr.Zero) return result;
+
+                remote = NativeMethods.VirtualAllocEx(proc, IntPtr.Zero, (IntPtr)8,
+                    NativeMethods.MEM_COMMIT | NativeMethods.MEM_RESERVE, NativeMethods.PAGE_READWRITE);
+                if (remote == IntPtr.Zero) return result;
+
+                var dpi = VisualTreeHelper.GetDpi(forWindow);
+                var cell = GridCellDip(forWindow);
+                var buf = new byte[8];
+
+                for (int i = 0; i < count; i++)
+                {
+                    if (NativeMethods.SendMessage(lv, NativeMethods.LVM_GETITEMPOSITION, (IntPtr)i, remote) == IntPtr.Zero)
+                        continue;
+                    if (!NativeMethods.ReadProcessMemory(proc, remote, buf, (IntPtr)8, out _))
+                        continue;
+
+                    int x = BitConverter.ToInt32(buf, 0);
+                    int y = BitConverter.ToInt32(buf, 4);
+                    double px = (lvRect.Left + x) / dpi.DpiScaleX;
+                    double py = (lvRect.Top + y) / dpi.DpiScaleY;
+                    result.Add(new Rect(px, py, cell.Width, cell.Height));
+                }
+            }
+            catch
+            {
+                result.Clear();
+            }
+            finally
+            {
+                if (proc != IntPtr.Zero)
+                {
+                    if (remote != IntPtr.Zero)
+                        NativeMethods.VirtualFreeEx(proc, remote, IntPtr.Zero, NativeMethods.MEM_RELEASE);
+                    NativeMethods.CloseHandle(proc);
+                }
+            }
+            return result;
+        }
+
         // ---- "Show desktop icons" state -----------------------------------
 
         private static IntPtr _cachedListView;
