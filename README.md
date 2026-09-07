@@ -24,6 +24,36 @@ Download **`DesktopBuckets-Setup-<version>.exe`** from the
   right-click verb, then asks whether to also delete settings/logs — **your bucket
   folders and their files are never touched.**
 
+### Updates
+
+The running app checks GitHub Releases (~12 s after launch, then every 6 h) and, when a
+newer build exists, shows a window with the release notes and **Update now / Remind me
+later / Skip this version**. "Update now" downloads the setup `.exe`, runs it silently,
+and the app restarts on the new version. There's also **Check for updates…** in the tray
+menu.
+
+Two channels:
+
+| Channel | Source | Default |
+|---|---|---|
+| `nightly` | the rolling build published on **every push to `main`** (`0.1.<run>`) | ✔ |
+| `stable` | the latest `v*` tagged release | |
+
+Override defaults with `%APPDATA%\DesktopBuckets\update.json` (all keys optional):
+
+```json
+{
+  "enabled": true,
+  "repo": "nizarhamza/desktop-buckets",
+  "channel": "nightly",
+  "checkIntervalHours": 6,
+  "token": null
+}
+```
+
+`token` is only needed if the repo is private — a fine-grained PAT with *Contents:
+Read-only*, stored on the machine, never in the binary.
+
 ---
 
 ## What works today
@@ -116,8 +146,11 @@ iscc installer/DesktopBuckets.iss
 ```
 
 Output: `installer/Output/DesktopBuckets-Setup-<version>.exe`.
-Pushing a `v*` tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml),
-which does the above on a runner and publishes a GitHub Release with the installer attached.
+
+[`.github/workflows/release.yml`](.github/workflows/release.yml) does this on a runner:
+
+- **push to `main`** → version `0.1.<run>`, replaces the `nightly` prerelease with the new installer
+- **push a `v*` tag** → that version, creates/updates the matching stable release
 
 ### Command-line
 
@@ -169,12 +202,10 @@ Not yet implemented / rough edges:
 
 - **First-class pin reordering** (drag pins within the tile; today pin order = the order
   you pinned them).
-- **Auto-start with Windows** (Run key / Startup shortcut) — currently manual.
 - **WorkerW wallpaper parenting** as an option, for tiles that should hide on "Show
   desktop" like real desktop icons. v1 keeps them visible (Fences-style).
 - **Multi-monitor position clamping** on display-configuration changes is basic.
 - **Folder drops** (dropping a directory onto a tile is currently ignored; files only).
 - **Theming / size presets**, custom accent, compact vs comfortable density.
-- **Bundled app icon** (`Resources\app.ico`) — the tray currently falls back to a system
-  icon.
+- **Delta updates** — the updater currently pulls the full ~49 MB installer each time.
 - **Tests** for `FileRankingService` and `Bucket` pin/prune logic (pure, easy to cover).
