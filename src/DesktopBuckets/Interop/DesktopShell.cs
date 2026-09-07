@@ -94,8 +94,14 @@ namespace DesktopBuckets.Interop
             cw = Clamp(cw, spi.Width * 0.55, spi.Width * 3.0);
             ch = Clamp(ch, spi.Height * 0.55, spi.Height * 3.0);
 
-            var grid = new IconGrid(new Point(cols[0], rows[0]), new Size(cw, ch), icons);
-            Services.Log.Info($"IconGrid(px): origin=({cols[0]:F0},{rows[0]:F0}) cell={cw:F0}x{ch:F0} " +
+            // Origin = the grid PHASE most icons share, not one corner icon (which may be
+            // a stray at an odd position that would shift every snap). This keeps snapping
+            // aligned even when the desktop is a bit messy.
+            double ox = ModalPhase(icons.ConvertAll(r => r.X), cw, cols[0]);
+            double oy = ModalPhase(icons.ConvertAll(r => r.Y), ch, rows[0]);
+
+            var grid = new IconGrid(new Point(ox, oy), new Size(cw, ch), icons);
+            Services.Log.Info($"IconGrid(px): origin=({ox:F0},{oy:F0}) cell={cw:F0}x{ch:F0} " +
                               $"cols={cols.Count} rows={rows.Count} icons={icons.Count}");
             return grid;
         }
@@ -148,6 +154,26 @@ namespace DesktopBuckets.Interop
         }
 
         private static double Clamp(double v, double lo, double hi) => v < lo ? lo : v > hi ? hi : v;
+
+        /// <summary>The lattice phase (0..cell) most icon coordinates share, returned as an
+        /// origin near <paramref name="near"/>. Robust to a few off-grid stray icons.</summary>
+        private static double ModalPhase(System.Collections.Generic.List<double> values, double cell, double near)
+        {
+            if (cell <= 1 || values.Count == 0) return near;
+            var buckets = new System.Collections.Generic.Dictionary<int, int>();
+            foreach (var v in values)
+            {
+                int ph = (int)Math.Round(((v % cell) + cell) % cell);
+                buckets.TryGetValue(ph, out int n);
+                buckets[ph] = n + 1;
+            }
+            int bestPh = 0, best = -1;
+            foreach (var kv in buckets)
+                if (kv.Value > best) { best = kv.Value; bestPh = kv.Key; }
+            // slide bestPh to the multiple of cell nearest the top-left-most icon line
+            double k = Math.Round((near - bestPh) / cell);
+            return bestPh + k * cell;
+        }
 
         private static Rect Inset(Rect r, double d) =>
             new(r.X + d, r.Y + d, Math.Max(1, r.Width - 2 * d), Math.Max(1, r.Height - 2 * d));
