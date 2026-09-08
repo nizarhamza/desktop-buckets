@@ -153,10 +153,18 @@ namespace DesktopBuckets.Views
                 _blockW = blockCols * cell.Width;
                 _blockH = blockRows * cell.Height;
 
-                // The visible window is only as big as its content needs, centred in
-                // that footprint — never larger than the footprint (Min guards a stray
-                // content measurement from ever exceeding the block it's centred in).
-                _gx = Math.Max(0, (_blockW - contentPxW) / 2);
+                // The visible window is only as big as its content needs — never larger
+                // than the footprint (Min guards a stray content measurement from ever
+                // exceeding the block it sits in). Left edge is NEVER inset: it always
+                // sits exactly on the footprint's own left edge, i.e. on the grid line,
+                // so tiles with different content widths (different file counts) still
+                // line up on the same column — insetting it here (centring) made each
+                // tile's visible left edge land at a DIFFERENT offset depending on its
+                // own content width, even when snapped to the same column. Vertical DOES
+                // still centre: that's what fixed a sparse 1-row bucket rendering as a
+                // tall, mostly-empty tile, and height variance doesn't create the same
+                // column-misalignment problem width variance does.
+                _gx = 0;
                 _gy = Math.Max(0, (_blockH - contentPxH) / 2);
                 Width = Math.Min(contentPxW, _blockW) / sxx;
                 Height = Math.Min(contentPxH, _blockH) / syy;
@@ -259,6 +267,37 @@ namespace DesktopBuckets.Views
             return x >= vx - 8 && y >= vy - 8 && x <= vx + vw - 40 && y <= vy + vh - 40;
         }
 
+        /// <summary>Nudges this tile sideways, in whole grid-cell steps, if its rect
+        /// overlaps another live tile — otherwise a placement based purely on cascade
+        /// index or a stored position (that no longer fits, e.g. after another bucket
+        /// was created nearby) can land two tiles on top of each other. Two problems
+        /// this fixes together: a fresh tile visually stacking on an existing one, and
+        /// (the worse half) that overlapping tile's own MakeSpace later treating the
+        /// desktop cells hidden behind its neighbour as "free" and shoving real icons
+        /// there, where they're invisible under the other tile. Only ever moves the
+        /// tile AWAY from an actual overlap — it never relocates a tile that doesn't
+        /// overlap anything, so tiles the user placed deliberately (even edge to edge)
+        /// are left alone.</summary>
+        private bool AvoidOtherTiles()
+        {
+            var others = _host.OtherTileRects(this).ToList();
+            if (others.Count == 0) return false;
+
+            var mine = new Rect(Left, Top, ActualWidth, ActualHeight);
+            var cell = DesktopShell.GetIconGrid().CellPx;
+            var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+            var step = new Size(
+                cell.Width > 4 ? cell.Width / dpi.DpiScaleX : 32,
+                cell.Height > 4 ? cell.Height / dpi.DpiScaleY : 32);
+
+            if (DesktopShell.FindNonOverlappingPosition(mine, others, step, IsOnScreen) is not { } p)
+                return false;
+
+            Left = p.X;
+            Top = p.Y;
+            return true;
+        }
+
         // ---- window plumbing -----------------------------------------
 
         private void OnSourceInitialized(object? sender, EventArgs e)
@@ -288,6 +327,15 @@ namespace DesktopBuckets.Views
             // Line up with the desktop icon grid, but don't rearrange the user's icons
             // on startup — that only happens on an explicit drag.
             SnapToDesktopGrid(claimSpace: false);
+
+            // Other tiles may already be showing (loaded earlier this same startup, or
+            // this bucket's own stored position no longer clears one created since).
+            // Step away from any overlap before it can hide icons behind a neighbour.
+            if (AvoidOtherTiles())
+            {
+                SnapToDesktopGrid(claimSpace: false);
+                _vm.Bucket.SetPosition(Left, Top); // persist so the fix sticks, not just this run
+            }
 
             var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
             if (hwnd != IntPtr.Zero) DesktopWindowHelper.SendToBottom(hwnd);

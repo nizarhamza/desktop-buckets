@@ -41,15 +41,31 @@ namespace DesktopBuckets.Models
             folderPath = Normalize(folderPath);
             Directory.CreateDirectory(folderPath);
             var configPath = Path.Combine(folderPath, ConfigFileName);
-            BucketConfig config = File.Exists(configPath)
-                ? JsonUtil.Read<BucketConfig>(configPath) ?? new BucketConfig()
-                : new BucketConfig();
+            bool isFreshConfig = !File.Exists(configPath);
+            BucketConfig config = isFreshConfig
+                ? new BucketConfig()
+                : JsonUtil.Read<BucketConfig>(configPath) ?? new BucketConfig();
 
             var folderName = new DirectoryInfo(folderPath).Name;
-            if (string.IsNullOrWhiteSpace(config.Name) || !File.Exists(configPath))
+            if (string.IsNullOrWhiteSpace(config.Name) || isFreshConfig)
                 config.Name = folderName;
 
             var bucket = new Bucket(folderPath, config);
+
+            // A brand-new bucket defaults to 4 slots (2x2) — fine for one created empty
+            // via "New bucket…", since an empty tile shows its own placeholder text
+            // instead of a grid. But turning an EXISTING folder that already has files
+            // into a bucket left the grid reserving the full default layout regardless
+            // of how many were actually there — e.g. 2 files rendering in a 2x2 grid
+            // with two visibly empty slots, extra dead space nobody asked for. Size the
+            // initial slot count to what's really in the folder instead; the user can
+            // always change it afterwards via the tile's own "Icon slots" menu.
+            if (isFreshConfig)
+            {
+                int fileCount = bucket.EnumerateFiles().Count;
+                if (fileCount > 0) config.SlotCount = Math.Clamp(fileCount, 2, 9);
+            }
+
             bucket.SaveConfig();
             return bucket;
         }

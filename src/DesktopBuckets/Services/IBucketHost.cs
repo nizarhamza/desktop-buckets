@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Windows;
 using DesktopBuckets.Models;
 
 namespace DesktopBuckets.Services
@@ -19,5 +21,11 @@ namespace DesktopBuckets.Services
         /// <summary>Tell the user something they asked for visibly didn't happen (a
         /// tray balloon). The app is silent on success by design, not on failure.</summary>
         void Notify(string message);
+
+        /// <summary>Screen-pixel rects (Left, Top, Width, Height) of every other live
+        /// tile window besides <paramref name="exclude"/>. Used at placement time so a
+        /// freshly created/dragged-in tile can avoid landing on top of one that's
+        /// already there instead of just stacking blindly.</summary>
+        IEnumerable<Rect> OtherTileRects(object exclude);
     }
 }

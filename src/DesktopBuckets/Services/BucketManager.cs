@@ -100,6 +100,18 @@ namespace DesktopBuckets.Services
 
         public void Notify(string message) => _tray?.ShowBalloon("Desktop Buckets", message);
 
+        public IEnumerable<Rect> OtherTileRects(object exclude)
+        {
+            foreach (var e in _entries.Values)
+            {
+                if (ReferenceEquals(e.Window, exclude)) continue;
+                if (!e.Window.IsLoaded) continue;
+                var w = e.Window;
+                if (w.ActualWidth <= 0 || w.ActualHeight <= 0) continue;
+                yield return new Rect(w.Left, w.Top, w.ActualWidth, w.ActualHeight);
+            }
+        }
+
         public void PromptCreateBucket(string? parentFolder = null)
         {
             var name = InputDialog.Ask("New bucket", "Bucket name", "New Bucket", "Create");

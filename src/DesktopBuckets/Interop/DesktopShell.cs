@@ -825,6 +825,53 @@ namespace DesktopBuckets.Interop
             }
         }
 
+        /// <summary>Given a rect and a set of obstacle rects (other tiles' rects, in the
+        /// same coordinate space), finds the nearest position — searched in an
+        /// expanding ring of whole <paramref name="step"/> increments around the rect's
+        /// own position — where it no longer overlaps any obstacle. Returns null when no
+        /// move is needed (doesn't overlap anything to start with) or when the ring
+        /// search runs out (genuinely no free spot within <paramref name="maxRing"/>
+        /// steps) — either way the caller just keeps the original position. Pure and
+        /// side-effect-free (unlike the live-window version of this problem,
+        /// BucketTileWindow.AvoidOtherTiles, which reads/writes Left/Top on a real
+        /// Window) so the tile-overlap-avoidance logic itself is directly unit-testable
+        /// without spinning up WPF windows or live desktop interop.</summary>
+        internal static Point? FindNonOverlappingPosition(
+            Rect mine, IReadOnlyList<Rect> obstacles, Size step,
+            Func<double, double, bool> isOnScreen, int maxRing = 24)
+        {
+            if (mine.Width <= 0 || mine.Height <= 0) return null;
+            if (!obstacles.Any(o => StrictlyOverlaps(o, mine))) return null;
+
+            double baseLeft = mine.X, baseTop = mine.Y;
+            double stepX = step.Width > 0 ? step.Width : 32;
+            double stepY = step.Height > 0 ? step.Height : 32;
+
+            for (int ring = 1; ring <= maxRing; ring++)
+            {
+                for (int dy = -ring; dy <= ring; dy++)
+                for (int dx = -ring; dx <= ring; dx++)
+                {
+                    if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != ring) continue; // ring perimeter only
+                    double tryLeft = baseLeft + dx * stepX;
+                    double tryTop = baseTop + dy * stepY;
+                    if (!isOnScreen(tryLeft, tryTop)) continue;
+                    var candidate = new Rect(tryLeft, tryTop, mine.Width, mine.Height);
+                    if (obstacles.Any(o => StrictlyOverlaps(o, candidate))) continue;
+                    return new Point(tryLeft, tryTop);
+                }
+            }
+            return null;
+        }
+
+        /// <summary>True overlap only — unlike <see cref="Rect.IntersectsWith"/>, two
+        /// rects that merely touch at an edge (share a boundary, zero-area intersection)
+        /// do NOT count. Tiles snapped to adjacent grid cells touch edge-to-edge by
+        /// construction; treating that as "overlapping" would make FindNonOverlappingPosition
+        /// keep shoving deliberately snug neighbours further apart for no visible reason.</summary>
+        private static bool StrictlyOverlaps(Rect a, Rect b) =>
+            a.Left < b.Right && a.Right > b.Left && a.Top < b.Bottom && a.Bottom > b.Top;
+
         private static (int col, int row)? FindFreeCell(
             IconGrid g, (int col, int row) from,
             HashSet<(int, int)> reserved, HashSet<(int, int)> occupied,

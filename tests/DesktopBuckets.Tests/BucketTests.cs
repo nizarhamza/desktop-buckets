@@ -173,5 +173,71 @@ namespace DesktopBuckets.Tests
             b.SetSlotCount(99);
             Assert.Equal(9, b.Config.SlotCount);
         }
+
+        // ---- initial slot count on fresh config -------------------------
+        // Bug report point 2: turning an existing folder that already has files into a
+        // bucket left the grid reserving the default 4-slot (2x2) layout regardless of
+        // how many files were actually there — e.g. 2 files rendering with two visibly
+        // empty slots. LoadOrCreate now sizes the initial slot count from what's really
+        // in the folder (clamped 2-9) instead of always defaulting to 4.
+
+        [Fact]
+        public void FreshConfigOnEmptyFolderKeepsTheDefaultSlotCount()
+        {
+            using var tmp = new TempDir();
+            var b = Bucket.LoadOrCreate(tmp.Path); // no files at all
+            Assert.Equal(new BucketConfig().SlotCount, b.Config.SlotCount);
+        }
+
+        [Fact]
+        public void FreshConfigOnFolderWithTwoFilesGetsTwoSlotsNotTheDefaultFour()
+        {
+            using var tmp = new TempDir();
+            tmp.File("a.txt");
+            tmp.File("b.txt");
+
+            var b = Bucket.LoadOrCreate(tmp.Path);
+
+            Assert.Equal(2, b.Config.SlotCount);
+        }
+
+        [Fact]
+        public void FreshConfigOnFolderWithManyFilesClampsSlotCountToNine()
+        {
+            using var tmp = new TempDir();
+            for (int i = 0; i < 15; i++) tmp.File($"f{i}.txt");
+
+            var b = Bucket.LoadOrCreate(tmp.Path);
+
+            Assert.Equal(9, b.Config.SlotCount);
+        }
+
+        [Fact]
+        public void FreshConfigOnFolderWithOneFileClampsSlotCountToTwo()
+        {
+            // Clamped to a 2-slot minimum, not 1 — a single-slot bucket has nowhere to
+            // grow into without immediately overflowing on the very next dropped file.
+            using var tmp = new TempDir();
+            tmp.File("solo.txt");
+
+            var b = Bucket.LoadOrCreate(tmp.Path);
+
+            Assert.Equal(2, b.Config.SlotCount);
+        }
+
+        [Fact]
+        public void ExistingConfigSlotCountIsNeverOverriddenByFileCount()
+        {
+            using var tmp = new TempDir();
+            tmp.File("a.txt");
+            var b = Bucket.LoadOrCreate(tmp.Path); // fresh: sizes to 2
+            b.SetSlotCount(6);                     // user explicitly changes it
+
+            tmp.File("b.txt");
+            tmp.File("c.txt");
+            var reloaded = Bucket.LoadOrCreate(tmp.Path); // NOT fresh anymore
+
+            Assert.Equal(6, reloaded.Config.SlotCount); // untouched by the new file count
+        }
     }
 }
