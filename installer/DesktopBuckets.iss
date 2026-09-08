@@ -9,6 +9,8 @@
 #ifndef MyAppVersion
   #define MyAppVersion "0.1.0"
 #endif
+; Also the name of the uninstall registry key (with "_is1" appended).
+#define MyAppIdGuid "{6B0B8E6E-6D2C-4C5E-9C3E-6E1B4C2A9D71}"
 #define MyAppPublisher "Desktop Buckets"
 #define MyAppURL "https://github.com/nizarhamza/desktop-buckets"
 #define MyAppExeName "DesktopBuckets.exe"
@@ -16,7 +18,7 @@
 
 [Setup]
 ; A stable AppId ties upgrades and the uninstaller together. Do not change it.
-AppId={{6B0B8E6E-6D2C-4C5E-9C3E-6E1B4C2A9D71}
+AppId={{#MyAppIdGuid}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
@@ -106,26 +108,44 @@ begin
   Result := CheckForMutexes(AppMutexes);
 end;
 
+// Where the currently installed exe lives. {app} isn't known yet in
+// InitializeSetup, so read the previous install's location from its uninstall
+// key, falling back to the default directory.
+function InstalledExePath: String;
+var
+  loc: String;
+begin
+  if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppIdGuid}_is1',
+                         'InstallLocation', loc) and (loc <> '') then
+    Result := AddBackslash(loc) + '{#MyAppExeName}'
+  else
+    Result := ExpandConstant('{autopf}\{#MyAppName}\{#MyAppExeName}');
+end;
+
 // Ask a running instance to exit on its own terms (it flushes .bucket.json files
 // and slides displaced desktop icons home), wait for it, and only fall back to a
 // hard kill if it hasn't gone after 20 s. A forced kill mid-save is how pins and
 // tile positions used to get lost.
-procedure StopRunningApp;
+procedure StopRunningApp(exe: String);
 var
-  exe: String;
   rc, i: Integer;
 begin
   if not AppIsRunning then
     exit;
 
-  exe := ExpandConstant('{app}\{#MyAppExeName}');
   if FileExists(exe) then
+  begin
+    Log('Asking the running app to quit: ' + exe);
     Exec(exe, '--quit', '', SW_HIDE, ewNoWait, rc);
+  end;
 
   for i := 1 to 200 do
   begin
     if not AppIsRunning then
+    begin
+      Log('App exited on request.');
       exit;
+    end;
     Sleep(100);
   end;
 
@@ -134,17 +154,40 @@ begin
        '', SW_HIDE, ewWaitUntilTerminated, rc);
 end;
 
-// Runs after the user has confirmed the install (and in the silent update path),
-// never on merely opening the installer.
+// Inno's own AppMutex check runs BEFORE PrepareToInstall, and in silent mode its
+// "application is running" box defaults to Cancel — so the running instance has
+// to be gone by the end of InitializeSetup. Silent (the in-app updater path): ask
+// it to quit and wait. Interactive: ask the user first, so merely opening the
+// installer and cancelling never closes the app.
+function InitializeSetup(): Boolean;
+begin
+  Result := True;
+  if not AppIsRunning then
+    exit;
+
+  if not WizardSilent then
+  begin
+    if MsgBox('{#MyAppName} is running. Close it and continue with the installation?',
+              mbConfirmation, MB_YESNO) <> IDYES then
+    begin
+      Result := False;
+      exit;
+    end;
+  end;
+
+  StopRunningApp(InstalledExePath);
+end;
+
+// Belt and braces: if it was relaunched while the wizard was open.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
-  StopRunningApp;
+  StopRunningApp(ExpandConstant('{app}\{#MyAppExeName}'));
   Result := '';
 end;
 
 function InitializeUninstall(): Boolean;
 begin
-  StopRunningApp;
+  StopRunningApp(ExpandConstant('{app}\{#MyAppExeName}'));
   Result := True;
 end;
 
