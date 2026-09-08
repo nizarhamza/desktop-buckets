@@ -104,7 +104,7 @@ if its version number is lower, since nightly build numbers climb past stable ta
 | Double-click a tile icon | Opens that file directly |
 | Double-click the tile body / label | Opens the bucket folder in File Explorer |
 | Right-click a tile icon | Pin / Unpin / reveal / copy path |
-| Right-click the tile body | Rename, delete, slots, lock, shell toggle, new bucket |
+| Right-click the tile body | Rename, delete, slots, lock, shell toggle, new bucket, Settings… |
 | Drag the tile body | Moves the tile; snaps to the desktop icon cells; position persisted. Icons under it are nudged aside only once the tile has rested there for a second (or is dropped) and slide back when it moves on |
 | Drop files on the tile | **Moves** them into the bucket (Ctrl = copy) |
 

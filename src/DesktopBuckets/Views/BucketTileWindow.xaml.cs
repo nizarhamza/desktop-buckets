@@ -574,6 +574,10 @@ namespace DesktopBuckets.Views
             newBucket.Click += (_, _) => _host.PromptCreateBucket();
             menu.Items.Add(newBucket);
 
+            var settings = new MenuItem { Header = "Settings…" };
+            settings.Click += (_, _) => _host.OpenSettings();
+            menu.Items.Add(settings);
+
             var shell = new MenuItem
             {
                 Header = "Add “New Bucket” to desktop right-click",

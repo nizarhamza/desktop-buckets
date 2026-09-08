@@ -103,20 +103,23 @@
                            Visibility="{Binding IsEmpty, Converter={StaticResource BoolVis}}" />
             </Grid>
 
-            <StackPanel Orientation="Horizontal"
-                        HorizontalAlignment="Center"
-                        Margin="0,3,0,0">
-                <TextBlock Text="{Binding Name}"
-                           Foreground="#FFF3F3F3"
-                           FontSize="11"
-                           FontWeight="SemiBold"
-                           TextTrimming="CharacterEllipsis"
-                           MaxWidth="180" />
-                <TextBlock Text="{Binding OverflowCount, StringFormat=' +{0}'}"
-                           Foreground="#80FFFFFF"
-                           FontSize="12"
-                           Visibility="{Binding HasOverflow, Converter={StaticResource BoolVis}}" />
-            </StackPanel>
+            <TextBlock Text="{Binding Name}"
+                       Foreground="#FFF3F3F3"
+                       FontSize="11"
+                       FontWeight="SemiBold"
+                       HorizontalAlignment="Center"
+                       TextAlignment="Center"
+                       TextTrimming="CharacterEllipsis"
+                       TextWrapping="NoWrap"
+                       MaxWidth="180"
+                       Margin="4,5,4,0"
+                       ToolTip="{Binding OverflowTooltip}">
+                <TextBlock.Effect>
+                    <!-- A soft dark halo keeps the name legible over bright or busy
+                         wallpaper showing through the glass, without a hard outline. -->
+                    <DropShadowEffect Color="#FF000000" Opacity="0.65" BlurRadius="4" ShadowDepth="0" />
+                </TextBlock.Effect>
+            </TextBlock>
         </StackPanel>
     </Border>
 </Window>

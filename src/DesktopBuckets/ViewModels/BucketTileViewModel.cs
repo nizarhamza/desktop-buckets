@@ -41,6 +41,14 @@ namespace DesktopBuckets.ViewModels
         public int OverflowCount => Math.Max(0, TotalCount - Slots.Count);
         public bool HasOverflow => OverflowCount > 0;
 
+        /// <summary>Where the "+N" overflow count used to sit inline next to the bucket
+        /// name, crowding it (worst on a narrow 1-row tile). Surfaced as a tooltip on the
+        /// name instead — null (no tooltip at all, not an empty bubble) when nothing is
+        /// hidden.</summary>
+        public string? OverflowTooltip => HasOverflow
+            ? (OverflowCount == 1 ? "1 more file not shown" : $"{OverflowCount} more files not shown")
+            : null;
+
         public void Refresh()
         {
             var all = Bucket.EnumerateFiles();
@@ -54,6 +62,7 @@ namespace DesktopBuckets.ViewModels
             Raise(nameof(Name));
             Raise(nameof(OverflowCount));
             Raise(nameof(HasOverflow));
+            Raise(nameof(OverflowTooltip));
 
             Refreshed?.Invoke();
         }
