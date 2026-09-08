@@ -23,8 +23,8 @@
          allows it. -->
     <Border x:Name="Card"
             CornerRadius="12"
-            Background="#7A131519"
-            BorderBrush="#45FFFFFF"
+            Background="#33131519"
+            BorderBrush="#4DFFFFFF"
             BorderThickness="1"
             Padding="8"
             MouseDown="Card_MouseDown">
