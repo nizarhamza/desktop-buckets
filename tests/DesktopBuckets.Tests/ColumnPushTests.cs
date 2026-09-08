@@ -240,6 +240,50 @@ namespace DesktopBuckets.Tests
                 AssertNoIconLost(result, filtered, maxCol, maxRow);
         }
 
+        [Theory]
+        [MemberData(nameof(RealisticTilePositions))]
+        public void RealisticDenseDesktop_TouchesOnlyAHandfulOfIcons_NotTheWholeColumn(int tileLeft, int tileTop)
+        {
+            // The bug this test guards against: a live 116-icon desktop with a plain 2x2
+            // tile placement moved 41, 57, then 62 icons in a single push — because the
+            // old algorithm swept every icon below the tile in a column into a fresh
+            // sequential repack, even ones with a gap right below the tile that could
+            // have absorbed the whole push. On this same 13x10 layout (gap every 7th
+            // cell, so gaps are never far away), a 2x2 tile should touch only a few.
+            const int maxCol = 12, maxRow = 9;
+            var icons = RealisticDesktop(maxCol, maxRow, gapEvery: 7);
+            int tileRight = System.Math.Min(maxCol, tileLeft + 1);
+            int tileBottom = System.Math.Min(maxRow, tileTop + 1);
+            var filtered = icons.Where(kv => kv.Value.col >= tileLeft).ToDictionary(kv => kv.Key, kv => kv.Value);
+
+            var result = DesktopShell.ComputeColumnPush(filtered, tileLeft, tileRight, tileTop, tileBottom, maxCol, maxRow);
+
+            // With ~86% of cells occupied (gapEvery=7) the nearest gap below the tile
+            // isn't always adjacent, so some columns legitimately ripple most of their
+            // height before finding one — this bound isn't "near zero", it's "nowhere
+            // near a full-column-or-more sweep". The live desktop that motivated this
+            // test (similar density) saw the OLD algorithm move 41, 57 and 62 icons for
+            // a single 2x2 placement; every column here holds at most maxRow+1=10 icons,
+            // so touching more than two columns' worth (20) would mean the minimal-gap
+            // search is still overreaching.
+            Assert.True(result.Placements.Count <= 2 * (maxRow + 1),
+                $"pushed {result.Placements.Count} icons for a 2x2 tile — expected at most two columns' worth ({2 * (maxRow + 1)}), not a wide sweep");
+        }
+
+        [Fact]
+        public void GapImmediatelyBelowTheTileAbsorbsThePushWithNoRippleAtAll()
+        {
+            // Icon 1 is under the tile; row 4 (right below the tile) is empty; icon 2 sits
+            // further down at row 6 undisturbed. Only icon 1 should move — to row 4 — and
+            // icon 2, which has nothing to do with the tile, must not be touched.
+            var icons = new Dictionary<int, (int, int)> { [1] = (3, 2), [2] = (3, 6) };
+            var result = DesktopShell.ComputeColumnPush(icons, tileLeft: 3, tileRight: 4, tileTop: 2, tileBottom: 3, maxCol: 12, maxRow: 9);
+
+            var move = Assert.Single(result.Placements);
+            Assert.Equal(1, move.idx);
+            Assert.Equal((3, 4), move.to); // straight into the gap, no chain needed
+        }
+
         [Fact]
         public void RepeatedPushesConverge_NoIconEverUnderTile()
         {

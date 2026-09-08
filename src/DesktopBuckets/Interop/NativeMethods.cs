@@ -149,6 +149,14 @@ namespace DesktopBuckets.Interop
         public const int GWL_STYLE = -16;
         public const int LVS_AUTOARRANGE = 0x0100;
 
+        // Extended listview styles ("Align icons to grid" on the desktop's right-click
+        // View menu). Left ON, Explorer can silently re-snap an icon we just positioned
+        // to ITS OWN idea of the grid, fighting our placement; the app defensively clears
+        // just this bit (never touches LVS_AUTOARRANGE, a much bigger behavior change).
+        public const uint LVM_GETEXTENDEDLISTVIEWSTYLE = LVM_FIRST + 55; // 0x1037
+        public const uint LVM_SETEXTENDEDLISTVIEWSTYLE = LVM_FIRST + 54; // 0x1036
+        public const uint LVS_EX_SNAPTOGRID = 0x00080000;
+
         [DllImport("user32.dll", SetLastError = true)]
         public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 

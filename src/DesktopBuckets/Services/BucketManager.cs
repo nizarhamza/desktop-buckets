@@ -57,6 +57,7 @@ namespace DesktopBuckets.Services
             _tray.SettingsRequested += OpenSettings;
             _tray.ToggleShellRequested += ToggleShellIntegration;
             _tray.OpenFolderRequested += () => OpenPath(BucketStore.DefaultBucketRoot);
+            _tray.RealignIconsRequested += RealignIconsToGrid;
             _tray.CheckUpdatesRequested += () => _ = _update?.CheckAsync(userInitiated: true);
             _tray.QuitRequested += QuitApp;
 
@@ -69,6 +70,7 @@ namespace DesktopBuckets.Services
 
             try
             {
+                Interop.DesktopShell.EnsureSnapToGridDisabled();
                 _desktopIconsVisible = Interop.DesktopShell.DesktopIconsVisible();
                 _desktopWatch = new System.Windows.Threading.DispatcherTimer(
                     System.Windows.Threading.DispatcherPriority.Background, Application.Current.Dispatcher)
@@ -397,6 +399,23 @@ namespace DesktopBuckets.Services
                     e.Window.Top = SystemParameters.WorkArea.Top + 40 + (_cascade % 8) * 28;
                     _cascade++;
                 }
+            }
+        }
+
+        private void RealignIconsToGrid()
+        {
+            try
+            {
+                Interop.DesktopShell.EnsureSnapToGridDisabled();
+                int moved = Interop.DesktopShell.RealignAllIconsToGrid();
+                Notify(moved == 0
+                    ? "Desktop icons were already on the grid."
+                    : moved == 1 ? "Realigned 1 icon to the grid." : $"Realigned {moved} icons to the grid.");
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Realign icons to grid failed", ex);
+                Notify($"Couldn't realign desktop icons: {ex.Message}");
             }
         }
 

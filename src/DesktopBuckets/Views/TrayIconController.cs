@@ -16,6 +16,7 @@ namespace DesktopBuckets.Views
         public event Action? SettingsRequested;
         public event Action<bool>? ToggleShellRequested;
         public event Action? OpenFolderRequested;
+        public event Action? RealignIconsRequested;
         public event Action? CheckUpdatesRequested;
         public event Action? QuitRequested;
 
@@ -49,6 +50,12 @@ namespace DesktopBuckets.Views
 
             menu.Items.Add(new WinForms.ToolStripMenuItem("Open buckets folder", null,
                 (_, _) => OpenFolderRequested?.Invoke()));
+
+            menu.Items.Add(new WinForms.ToolStripMenuItem("Realign desktop icons to grid", null,
+                (_, _) => RealignIconsRequested?.Invoke())
+            {
+                ToolTipText = "Snaps every desktop icon to this app's own grid lines. Nothing changes which icon goes where — only nudges any that have drifted off-grid.",
+            });
 
             menu.Items.Add(new WinForms.ToolStripSeparator());
 

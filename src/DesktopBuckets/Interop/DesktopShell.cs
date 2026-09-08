@@ -341,6 +341,7 @@ namespace DesktopBuckets.Interop
         /// recorded home is kept so they can still return there.</summary>
         public static IconGrid BeginDrag(DragDisplacement state, Visual? forWindow = null)
         {
+            EnsureSnapToGridDisabled(); // so Explorer's own grid can't fight this drag's placements
             WithListView((lv, proc, remote) =>
             {
                 int count = ItemCount(lv);
@@ -357,6 +358,68 @@ namespace DesktopBuckets.Interop
                 state.Captured = true;
             });
             return state.Grid;
+        }
+
+        /// <summary>Clears the desktop listview's own "Align icons to grid" extended
+        /// style (LVS_EX_SNAPTOGRID) so Explorer never re-snaps an icon we just placed to
+        /// ITS OWN idea of the grid, fighting this app's placement. Idempotent and cheap;
+        /// safe to call before every push. Does NOT touch "Auto arrange icons"
+        /// (LVS_AUTOARRANGE) — that's a much bigger behavior change the user owns, and
+        /// MakeSpace already refuses to run at all while it's on.</summary>
+        public static void EnsureSnapToGridDisabled()
+        {
+            try
+            {
+                var lv = ResolveListView();
+                if (lv == IntPtr.Zero) return;
+                if (!NativeMethods.TrySendMessage(lv, NativeMethods.LVM_GETEXTENDEDLISTVIEWSTYLE, IntPtr.Zero, IntPtr.Zero, out var cur))
+                    return;
+                long ex = cur.ToInt64();
+                if ((ex & NativeMethods.LVS_EX_SNAPTOGRID) == 0) return; // already off
+                long next = ex & ~(long)NativeMethods.LVS_EX_SNAPTOGRID;
+                NativeMethods.TrySendMessage(lv, NativeMethods.LVM_SETEXTENDEDLISTVIEWSTYLE,
+                    (IntPtr)NativeMethods.LVS_EX_SNAPTOGRID, IntPtr.Zero, out _);
+                Services.Log.Info("Disabled the desktop's own \"Align icons to grid\" so it can't fight tile placement.");
+            }
+            catch (Exception ex) { Services.Log.Error("EnsureSnapToGridDisabled failed", ex); }
+        }
+
+        /// <summary>User-invoked "Realign desktop icons to grid": snaps every desktop
+        /// icon to the nearest cell of THIS app's own measured lattice (animated), so any
+        /// icon that has drifted off-grid — from Windows, from another app, or from a
+        /// past version of this one — lines back up. Icons already exactly on a cell are
+        /// left untouched. Never rearranges which icon is where, only nudges each to its
+        /// own nearest line.</summary>
+        public static int RealignAllIconsToGrid()
+        {
+            int moved = 0;
+            try
+            {
+                WithListView((lv, proc, remote) =>
+                {
+                    if ((NativeMethods.GetWindowLong(lv, NativeMethods.GWL_STYLE) & NativeMethods.LVS_AUTOARRANGE) != 0)
+                        return; // Explorer owns placement entirely in this mode; nothing for us to do
+                    var grid = GetIconGrid(fresh: true);
+                    if (!grid.Valid) return;
+
+                    int count = ItemCount(lv);
+                    if (count <= 0 || count > 5000) return;
+                    var pos = ReadPositions(lv, proc, remote, count);
+
+                    int stagger = 0;
+                    for (int i = 0; i < count; i++)
+                    {
+                        if (double.IsNaN(pos[i].X)) continue;
+                        var snapped = grid.Snap(pos[i]);
+                        if (Math.Abs(snapped.X - pos[i].X) < 1 && Math.Abs(snapped.Y - pos[i].Y) < 1) continue;
+                        IconAnimator.Move(lv, i, pos[i], snapped, delayMs: Math.Min(stagger++ * 12, 400));
+                        moved++;
+                    }
+                    Services.Log.Info($"Realign to grid: moved {moved} of {count} icon(s).");
+                });
+            }
+            catch (Exception ex) { Services.Log.Error("RealignAllIconsToGrid failed", ex); }
+            return moved;
         }
 
         /// <summary>Push the icons under <paramref name="tileRectPx"/> out of the way the
@@ -507,15 +570,33 @@ namespace DesktopBuckets.Interop
             int tileLeft, int tileRight, int tileTop, int tileBottom,
             int maxCol, int maxRow)
         {
-            var byColumn = new Dictionary<int, List<(int row, int idx)>>();
+            // Only icons genuinely INSIDE the blocked band must move — an icon already
+            // below the tile, undisturbed, stays exactly where it is unless something
+            // else's ripple needs its cell. (The earlier version swept every icon at or
+            // below the tile's row into a fresh sequential repack every time, which could
+            // touch dozens of untouched icons for a single 2-cell tile placement — the
+            // real desktop showed pushes moving 40-60 icons for one drop. This is the fix.)
+            var mustMoveByCol = new Dictionary<int, List<int>>(); // tile columns only, original row order
+            // Occupancy per column, EXCLUDING must-move icons: row -> icon index. This is
+            // the set of gaps/occupants each ripple has to thread through.
+            var occByCol = new Dictionary<int, Dictionary<int, int>>();
             foreach (var kv in iconCells)
             {
-                int lc = kv.Value.col;
+                int lc = kv.Value.col, r = kv.Value.row;
                 if (lc < tileLeft) continue; // left of the tile: never touched
-                if (!byColumn.TryGetValue(lc, out var list)) byColumn[lc] = list = new List<(int, int)>();
-                list.Add((kv.Value.row, kv.Key));
+                bool isTileCol = lc >= tileLeft && lc <= tileRight;
+                if (isTileCol && r >= tileTop && r <= tileBottom)
+                {
+                    if (!mustMoveByCol.TryGetValue(lc, out var l)) mustMoveByCol[lc] = l = new List<int>();
+                    l.Add(kv.Key);
+                }
+                else
+                {
+                    if (!occByCol.TryGetValue(lc, out var d)) occByCol[lc] = d = new Dictionary<int, int>();
+                    d[r] = kv.Key;
+                }
             }
-            foreach (var list in byColumn.Values) list.Sort((a, b) => a.row.CompareTo(b.row));
+            foreach (var l in mustMoveByCol.Values) l.Sort((a, b) => iconCells[a].row.CompareTo(iconCells[b].row));
 
             var carry = new List<int>();
             var moves = new List<(int idx, (int col, int row) to, int stage)>();
@@ -523,26 +604,52 @@ namespace DesktopBuckets.Interop
             for (int lc = tileLeft; lc <= maxCol; lc++)
             {
                 bool isTileCol = lc >= tileLeft && lc <= tileRight;
+                if (!occByCol.TryGetValue(lc, out var occ)) occByCol[lc] = occ = new Dictionary<int, int>();
 
-                var inSeq = new List<int>(carry);
-                if (byColumn.TryGetValue(lc, out var here))
-                    foreach (var (origRow, idx) in here)
-                    {
-                        if (isTileCol && origRow < tileTop) continue; // above the tile in its own column: untouched
-                        inSeq.Add(idx);
-                    }
-                if (inSeq.Count == 0) continue; // nothing here and nothing carried in: leave this column alone
+                var incoming = new List<int>(carry); // arrives at the top of this column first
+                if (isTileCol && mustMoveByCol.TryGetValue(lc, out var mm)) incoming.AddRange(mm);
+                if (incoming.Count == 0) continue; // nothing needs to enter this column: leave it alone entirely
 
-                int placeRow = isTileCol ? tileBottom + 1 : 0;
-                carry = new List<int>();
-                foreach (var idx in inSeq)
+                int searchStart = isTileCol ? tileBottom + 1 : 0;
+                var nextCarry = new List<int>();
+                // Per-column, overwrite-safe: if icon X gets bumped from row4 to row5 by
+                // a LATER incoming icon's chain within this same column, its entry here
+                // must be REPLACED (row5), never appended alongside the earlier (stale,
+                // row4) one — appending both is what produced two conflicting positions
+                // for the same icon (caught by the "clears both" unit test).
+                var columnMoves = new Dictionary<int, int>(); // icon -> destination row
+
+                foreach (var idx in incoming)
                 {
-                    if (placeRow > maxRow) { carry.Add(idx); continue; }
-                    moves.Add((idx, (lc, placeRow), stage));
-                    placeRow++;
+                    // Walk down from searchStart, threading through whatever's already
+                    // occupying each row, until the first genuinely empty cell — the
+                    // ripple is exactly as long as it needs to be, no further.
+                    var chain = new List<int>();
+                    int r = searchStart;
+                    bool landed = false;
+                    while (r <= maxRow)
+                    {
+                        chain.Add(r);
+                        if (!occ.ContainsKey(r)) { landed = true; break; }
+                        r++;
+                    }
+                    if (!landed) { nextCarry.Add(idx); continue; } // this column is full end to end: cascade right
+
+                    int mover = idx;
+                    foreach (var cellRow in chain)
+                    {
+                        bool wasOccupied = occ.TryGetValue(cellRow, out int occupant);
+                        columnMoves[mover] = cellRow;
+                        occ[cellRow] = mover;
+                        if (!wasOccupied) break; // reached the actual gap; this chain is done
+                        mover = occupant;         // the icon that was here rides the chain one step further
+                    }
                 }
-                stage++;
-                if (carry.Count == 0 && lc >= tileRight) break; // fully absorbed; nothing further needs to move
+
+                foreach (var kv in columnMoves) moves.Add((kv.Key, (lc, kv.Value), stage));
+                if (columnMoves.Count > 0) stage++;
+                carry = nextCarry;
+                if (carry.Count == 0 && lc >= tileRight) break; // nothing left to propagate further right
             }
 
             return new ColumnPushResult(moves, carry, stage);
