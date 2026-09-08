@@ -404,7 +404,30 @@ namespace DesktopBuckets.Services
                 // flushed, displaced icons restored) instead of taskkill /F.
                 if (args.Any(a => a.Equals("--quit", StringComparison.OrdinalIgnoreCase)))
                     QuitApp();
+
+                // A --dump-grid/--realign-now launch forwards here (App.OnStartup) instead
+                // of touching icons from a second, uncoordinated process — this instance
+                // is already mid-drag-aware of every tile it owns, so handling it in-process
+                // is what actually avoids the race two separate processes writing icon
+                // positions at once produced live (icons landing on top of each other).
+                if (args.Any(a => a.Equals("--realign-now", StringComparison.OrdinalIgnoreCase)))
+                    RealignIconsToGrid();
+
+                if (args.Any(a => a.Equals("--dump-grid", StringComparison.OrdinalIgnoreCase)))
+                    DumpGridDiagnostic();
             });
+        }
+
+        private static void DumpGridDiagnostic()
+        {
+            try
+            {
+                var text = Interop.DesktopShell.DescribeGrid() + Interop.DesktopShell.DescribeTileWindows();
+                var path = Path.Combine(BucketStore.AppDataDir, "grid-dump.txt");
+                File.WriteAllText(path, text);
+                Log.Info($"--dump-grid written to {path}");
+            }
+            catch (Exception ex) { Log.Error("--dump-grid failed", ex); }
         }
 
         public void ShowAll()

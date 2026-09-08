@@ -28,43 +28,63 @@ namespace DesktopBuckets
                 Shutdown();
                 return;
             }
-            // Diagnostic: what the snapping code sees (grid, icons, tile rects) -> grid-dump.txt
-            if (e.Args.Any(a => a.Equals("--dump-grid", StringComparison.OrdinalIgnoreCase)))
+            bool isDumpGrid = e.Args.Any(a => a.Equals("--dump-grid", StringComparison.OrdinalIgnoreCase));
+            bool isRealignNow = e.Args.Any(a => a.Equals("--realign-now", StringComparison.OrdinalIgnoreCase));
+            if (isDumpGrid || isRealignNow)
             {
-                try
+                // Both of these touch the SAME live desktop icons a running instance
+                // might be actively pushing aside mid-drag. Two separate, uncoordinated
+                // processes writing icon positions at the same time is a real race —
+                // confirmed live: running this standalone while the app was mid-drag
+                // produced real icons landing on top of each other that neither
+                // process's own placement logic would ever produce on its own, since
+                // each has zero visibility into what the OTHER is doing to the same
+                // listview at the same moment. If an instance is already running, hand
+                // the request to IT over the existing IPC pipe (same mechanism
+                // --new-bucket/--settings/--quit already use) instead of touching icons
+                // from here; only run standalone when nothing is running to hand it to —
+                // the documented "recovery without a running instance" case.
+                using var probe = new SingleInstance();
+                if (!probe.IsPrimary)
                 {
-                    var text = Interop.DesktopShell.DescribeGrid() + Interop.DesktopShell.DescribeTileWindows();
-                    var path = System.IO.Path.Combine(BucketStore.AppDataDir, "grid-dump.txt");
-                    System.IO.File.WriteAllText(path, text);
-                    Services.Log.Info($"--dump-grid written to {path}");
+                    SingleInstance.ForwardToPrimary(e.Args);
+                    Shutdown();
+                    return;
                 }
-                catch (Exception ex) { Services.Log.Error("--dump-grid failed", ex); }
-                Shutdown();
-                return;
-            }
-            // Same job as the tray's / Settings' "Align icons to grid", runnable without
-            // a running instance — handy for a scheduled task or scripted recovery.
-            if (e.Args.Any(a => a.Equals("--realign-now", StringComparison.OrdinalIgnoreCase)))
-            {
-                try
+
+                if (isDumpGrid)
                 {
-                    Interop.DesktopShell.EnsureSnapToGridDisabled();
-                    int moved = Interop.DesktopShell.RealignAllIconsToGrid();
-                    // RealignAllIconsToGrid only SCHEDULES icon moves — IconAnimator slides
-                    // them over ~260ms via a DispatcherTimer that needs the message pump
-                    // running. This process has no window and is about to Shutdown() right
-                    // after this block, which kills that pump immediately: without this
-                    // call, most icons (everything past the first ~16ms tick, i.e. nearly
-                    // all of them for a desktop with more than a couple to realign) would
-                    // never actually reach their resolved position, even though the "moved
-                    // N icon(s)" log line below claims they did (it counts scheduling, not
-                    // completion). FlushAndRelease writes every in-flight tween straight to
-                    // its final target instead of animating it, which is exactly right for
-                    // a one-shot CLI/recovery path with no UI to animate for anyone.
-                    Interop.IconAnimator.FlushAndRelease();
-                    Services.Log.Info($"--realign-now moved {moved} icon(s).");
+                    try
+                    {
+                        var text = Interop.DesktopShell.DescribeGrid() + Interop.DesktopShell.DescribeTileWindows();
+                        var path = System.IO.Path.Combine(BucketStore.AppDataDir, "grid-dump.txt");
+                        System.IO.File.WriteAllText(path, text);
+                        Services.Log.Info($"--dump-grid written to {path}");
+                    }
+                    catch (Exception ex) { Services.Log.Error("--dump-grid failed", ex); }
                 }
-                catch (Exception ex) { Services.Log.Error("--realign-now failed", ex); }
+                else
+                {
+                    try
+                    {
+                        Interop.DesktopShell.EnsureSnapToGridDisabled();
+                        int moved = Interop.DesktopShell.RealignAllIconsToGrid();
+                        // RealignAllIconsToGrid only SCHEDULES icon moves — IconAnimator
+                        // slides them over ~260ms via a DispatcherTimer that needs the
+                        // message pump running. This process has no window and is about
+                        // to Shutdown() right after this block, which kills that pump
+                        // immediately: without this call, most icons (everything past
+                        // the first ~16ms tick) would never actually reach their
+                        // resolved position, even though the "moved N icon(s)" log line
+                        // below claims they did (it counts scheduling, not completion).
+                        // FlushAndRelease writes every in-flight tween straight to its
+                        // final target instead of animating it, which is exactly right
+                        // for a one-shot CLI/recovery path with no UI to animate for.
+                        Interop.IconAnimator.FlushAndRelease();
+                        Services.Log.Info($"--realign-now moved {moved} icon(s).");
+                    }
+                    catch (Exception ex) { Services.Log.Error("--realign-now failed", ex); }
+                }
                 Shutdown();
                 return;
             }
