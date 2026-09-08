@@ -100,6 +100,15 @@ namespace DesktopBuckets.Services
 
         public void Start()
         {
+            // A successful update can't delete its own installer (it's running when we
+            // exit), so each one leaves ~50 MB in %TEMP%. Sweep old ones now.
+            try
+            {
+                int n = CleanStaleDownloads(Path.GetTempPath(), TimeSpan.FromHours(1));
+                if (n > 0) Log.Info($"Removed {n} stale update download folder(s) from %TEMP%.");
+            }
+            catch (Exception ex) { Log.Error("Stale download cleanup failed", ex); }
+
             StartPolling();
 
             if (_config.Enabled && _config.CheckOnStartup)
@@ -309,7 +318,7 @@ namespace DesktopBuckets.Services
 
             // A fresh, unpredictable directory: nothing else can pre-create or swap the
             // file between the checks below and Process.Start.
-            var dir = Path.Combine(Path.GetTempPath(), "DesktopBuckets-update-" + Guid.NewGuid().ToString("N"));
+            var dir = Path.Combine(Path.GetTempPath(), DownloadDirPrefix + Guid.NewGuid().ToString("N"));
             var target = Path.Combine(dir, assetName);
 
             try
@@ -412,6 +421,31 @@ namespace DesktopBuckets.Services
         private static void TryDeleteDir(string dir)
         {
             try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); } catch { /* ignore */ }
+        }
+
+        internal const string DownloadDirPrefix = "DesktopBuckets-update-";
+
+        /// <summary>Deletes download folders under <paramref name="tempRoot"/> last
+        /// touched more than <paramref name="olderThan"/> ago. Returns how many went.</summary>
+        internal static int CleanStaleDownloads(string tempRoot, TimeSpan olderThan)
+        {
+            if (!Directory.Exists(tempRoot)) return 0;
+            int removed = 0;
+            var cutoff = DateTime.UtcNow - olderThan;
+            foreach (var dir in Directory.EnumerateDirectories(tempRoot, DownloadDirPrefix + "*"))
+            {
+                try
+                {
+                    if (Directory.GetLastWriteTimeUtc(dir) > cutoff) continue;
+                    Directory.Delete(dir, recursive: true);
+                    removed++;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // still in use (installer running) or locked — next time
+                }
+            }
+            return removed;
         }
 
         // ---- helpers ----------------------------------------------
