@@ -23,7 +23,7 @@
          allows it. -->
     <Border x:Name="Card"
             CornerRadius="12"
-            Background="#33131519"
+            Background="#05131519"
             BorderBrush="#4DFFFFFF"
             BorderThickness="1"
             Padding="8"
