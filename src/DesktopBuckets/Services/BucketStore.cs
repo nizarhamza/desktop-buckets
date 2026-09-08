@@ -77,15 +77,50 @@ namespace DesktopBuckets.Services
             int beforePrune = _folders.Count;
             Prune();
             if (_folders.Count != beforePrune)
-                Log.Info($"BucketStore: Prune removed {beforePrune - _folders.Count} (folder missing).");
+                Log.Info($"BucketStore: Prune removed {beforePrune - _folders.Count} (folder missing, volume present).");
+            foreach (var f in _folders)
+                if (IsOffline(f)) Log.Info($"BucketStore: '{f}' is offline; keeping it in the index.");
         }
 
-        /// <summary>Drops entries whose folder no longer exists, then persists.</summary>
+        /// <summary>Drops entries whose folder is genuinely gone, then persists. A folder
+        /// on a volume that is not currently reachable (unplugged drive, offline share)
+        /// is kept — see <see cref="IsOffline"/> — so a bucket on a network path isn't
+        /// silently forgotten after one launch without the network.</summary>
         public void Prune()
         {
             int before = _folders.Count;
-            _folders.RemoveAll(f => !Directory.Exists(f));
+            _folders.RemoveAll(f => !Directory.Exists(f) && !IsOffline(f));
             if (_folders.Count != before) Save();
+        }
+
+        /// <summary>True when the folder is missing <b>and</b> the volume it lives on
+        /// can't be reached either — the folder may well come back. False when the
+        /// volume is there and the folder simply isn't.</summary>
+        public static bool IsOffline(string folder)
+        {
+            try
+            {
+                if (Directory.Exists(folder)) return false;
+                var root = VolumeRoot(folder);
+                return root != null && !Directory.Exists(root);
+            }
+            catch { return false; }
+        }
+
+        /// <summary>The drive (<c>D:\</c>) or share (<c>\\server\share\</c>) a path lives on.</summary>
+        internal static string? VolumeRoot(string folder)
+        {
+            var root = Path.GetPathRoot(folder);
+            if (string.IsNullOrEmpty(root)) return null;
+            if (root.StartsWith(@"\\", StringComparison.Ordinal))
+            {
+                // Path.GetPathRoot gives \\server\share for a UNC path; make sure we
+                // probe the share itself, not a bare server name.
+                var parts = root.TrimStart('\\').Split('\\', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 2) return null;
+                return @"\\" + parts[0] + @"\" + parts[1] + @"\";
+            }
+            return root;
         }
 
         public void Add(string folderPath)

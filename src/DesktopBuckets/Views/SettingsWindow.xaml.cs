@@ -19,11 +19,17 @@ namespace DesktopBuckets.Views
             _host = host;
             InitializeComponent();
 
+            // Both handlers are removed on Closed. The service outlives this window by
+            // hours; a handler left attached would keep the closed window alive and
+            // poke its torn-down visual tree on the next check.
             _update.UpToDateOrError += OnUpdateStatus;
-            _update.UpdateAvailable += (_, _) => Dispatcher.BeginInvoke(new Action(() =>
-                CheckStatusText.Text = "An update is available."));
+            _update.UpdateAvailable += OnUpdateAvailable;
 
-            Closed += (_, _) => _update.UpToDateOrError -= OnUpdateStatus;
+            Closed += (_, _) =>
+            {
+                _update.UpToDateOrError -= OnUpdateStatus;
+                _update.UpdateAvailable -= OnUpdateAvailable;
+            };
 
             LoadFromState();
         }
@@ -107,6 +113,9 @@ namespace DesktopBuckets.Views
 
         private void OnUpdateStatus(string message) =>
             Dispatcher.BeginInvoke(new Action(() => CheckStatusText.Text = message));
+
+        private void OnUpdateAvailable(Models.UpdateInfo info, bool userInitiated) =>
+            Dispatcher.BeginInvoke(new Action(() => CheckStatusText.Text = "An update is available."));
 
         // ---- startup & desktop --------------------------------------
 

@@ -10,7 +10,7 @@ namespace DesktopBuckets.Views
     {
         private readonly UpdateService _service;
         private readonly UpdateInfo _info;
-        private readonly CancellationTokenSource _cts = new();
+        private CancellationTokenSource? _cts;
         private bool _busy;
 
         public UpdatePromptWindow(UpdateService service, UpdateInfo info)
@@ -31,16 +31,17 @@ namespace DesktopBuckets.Views
                 StatusText.Visibility = Visibility.Visible;
             }
 
-            Closing += (_, e) => { if (_busy) e.Cancel = true; };
+            // Closing while a download is in flight cancels it rather than being vetoed —
+            // a stalled download must never leave the user with a window they can't shut.
+            Closing += (_, _) => _cts?.Cancel();
+            Closed += (_, _) => { _cts?.Dispose(); _cts = null; };
         }
 
         private async void Update_Click(object sender, RoutedEventArgs e)
         {
             if (_busy) return;
             _busy = true;
-            UpdateButton.IsEnabled = LaterButton.IsEnabled = SkipButton.IsEnabled = false;
-            DownloadBar.Visibility = Visibility.Visible;
-            StatusText.Visibility = Visibility.Visible;
+            SetBusyUi(true);
             StatusText.Text = "Downloading…";
 
             var progress = new Progress<double>(p =>
@@ -49,20 +50,43 @@ namespace DesktopBuckets.Views
                 StatusText.Text = $"Downloading… {p:P0}";
             });
 
-            var ok = await _service.DownloadAndLaunchAsync(_info, progress, _cts.Token);
+            _cts?.Dispose();
+            _cts = new CancellationTokenSource();
+            var token = _cts.Token;
+
+            bool ok;
+            try { ok = await _service.DownloadAndLaunchAsync(_info, progress, token); }
+            finally { _busy = false; }
 
             if (ok)
             {
                 StatusText.Text = "Starting installer…";
                 // The service shuts the app down; nothing more to do here.
+                return;
             }
-            else
-            {
-                _busy = false;
-                UpdateButton.IsEnabled = LaterButton.IsEnabled = SkipButton.IsEnabled = true;
-                DownloadBar.Visibility = Visibility.Collapsed;
-                StatusText.Text = "Update failed — see log.txt. You can retry or download it from GitHub.";
-            }
+
+            if (!IsLoaded) return; // window was closed mid-download
+            SetBusyUi(false);
+            StatusText.Text = token.IsCancellationRequested
+                ? "Download cancelled."
+                : "Update failed — see log.txt. You can retry or download it from GitHub.";
+        }
+
+        private void SetBusyUi(bool busy)
+        {
+            UpdateButton.IsEnabled = LaterButton.IsEnabled = SkipButton.IsEnabled = !busy;
+            CancelButton.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+            DownloadBar.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+            DownloadBar.Value = 0;
+            StatusText.Visibility = Visibility.Visible;
+        }
+
+        private void Cancel_Click(object sender, RoutedEventArgs e)
+        {
+            CancelButton.IsEnabled = false;
+            StatusText.Text = "Cancelling…";
+            _cts?.Cancel();
+            CancelButton.IsEnabled = true;
         }
 
         private void Later_Click(object sender, RoutedEventArgs e)

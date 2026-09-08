@@ -119,16 +119,12 @@ namespace DesktopBuckets.Interop
             var sorted = new System.Collections.Generic.List<double>(values);
             sorted.Sort();
             var clusters = new System.Collections.Generic.List<double>();
-            var members = new System.Collections.Generic.List<double>();
             foreach (var v in sorted)
             {
-                if (clusters.Count == 0 || v - clusters[^1] > tolerance)
-                {
-                    clusters.Add(v);
-                    members.Add(v);
-                }
-                // keep the cluster anchored to its first (smallest) member — icons in a
+                // A cluster is anchored to its first (smallest) member — icons in a
                 // column share an X, so the first is the true line; averaging drifts it.
+                if (clusters.Count == 0 || v - clusters[^1] > tolerance)
+                    clusters.Add(v);
             }
             return clusters;
         }
@@ -435,13 +431,17 @@ namespace DesktopBuckets.Interop
                 : NativeMethods.FindWindowEx(progman, IntPtr.Zero, "SHELLDLL_DefView", null);
             if (defView != IntPtr.Zero) return defView;
 
+            // The delegate is held in a local and kept alive past the call: the
+            // marshaller does not root it, and a collection mid-enumeration is a crash.
             IntPtr found = IntPtr.Zero;
-            NativeMethods.EnumWindows((h, _) =>
+            NativeMethods.EnumWindowsProc cb = (h, _) =>
             {
                 var dv = NativeMethods.FindWindowEx(h, IntPtr.Zero, "SHELLDLL_DefView", null);
                 if (dv != IntPtr.Zero) { found = dv; return false; }
                 return true;
-            }, IntPtr.Zero);
+            };
+            NativeMethods.EnumWindows(cb, IntPtr.Zero);
+            GC.KeepAlive(cb);
             return found;
         }
 
@@ -449,13 +449,15 @@ namespace DesktopBuckets.Interop
         {
             IntPtr found = IntPtr.Zero;
             var buf = new System.Text.StringBuilder(64);
-            NativeMethods.EnumChildWindows(root, (h, _) =>
+            NativeMethods.EnumWindowsProc cb = (h, _) =>
             {
                 buf.Clear();
                 NativeMethods.GetClassName(h, buf, buf.Capacity);
                 if (buf.ToString() == className) { found = h; return false; }
                 return true;
-            }, IntPtr.Zero);
+            };
+            NativeMethods.EnumChildWindows(root, cb, IntPtr.Zero);
+            GC.KeepAlive(cb);
             return found;
         }
     }

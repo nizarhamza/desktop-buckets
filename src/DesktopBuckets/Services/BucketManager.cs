@@ -96,6 +96,8 @@ namespace DesktopBuckets.Services
 
         public bool ShellIntegrationEnabled => ShellIntegration.IsRegistered;
 
+        public void Notify(string message) => _tray?.ShowBalloon("Desktop Buckets", message);
+
         public void PromptCreateBucket(string? parentFolder = null)
         {
             var name = InputDialog.Ask("New bucket", "Bucket name", "New Bucket", "Create");
@@ -211,7 +213,16 @@ namespace DesktopBuckets.Services
         {
             try
             {
-                if (!Directory.Exists(folder)) { _store.Remove(folder); return; }
+                if (!Directory.Exists(folder))
+                {
+                    // Keep a bucket whose volume is unreachable (network share, unplugged
+                    // drive): it comes back next launch. Drop only a folder that's really gone.
+                    if (BucketStore.IsOffline(folder))
+                        Log.Info($"Bucket '{folder}' is offline; no tile this session.");
+                    else
+                        _store.Remove(folder);
+                    return;
+                }
                 var bucket = Bucket.LoadOrCreate(folder);
                 bucket.PrunePinned();
                 LoadBucket(bucket);
@@ -389,14 +400,18 @@ namespace DesktopBuckets.Services
             }
         }
 
-        private static void OpenPath(string path)
+        private void OpenPath(string path)
         {
             try
             {
                 Directory.CreateDirectory(path);
                 Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
             }
-            catch (Exception ex) { Debug.WriteLine(ex.Message); }
+            catch (Exception ex)
+            {
+                Log.Error($"Open folder failed: {path}", ex);
+                Notify($"Couldn't open {path}: {ex.Message}");
+            }
         }
 
         private void QuitApp()
@@ -422,6 +437,9 @@ namespace DesktopBuckets.Services
                 e.Window.Teardown();
             }
             _entries.Clear();
+            // Teardown may have queued icon slide-backs; land them and free the
+            // remote allocation inside explorer.exe before we go.
+            Interop.IconAnimator.FlushAndRelease();
             _update?.Dispose();
             _update = null;
             _tray?.Dispose();

@@ -41,7 +41,10 @@ namespace DesktopBuckets.Views
                 CheckOnClick = true,
                 Checked = shellEnabled,
             };
-            _shellItem.CheckedChanged += (_, _) => ToggleShellRequested?.Invoke(_shellItem.Checked);
+            _shellItem.CheckedChanged += (_, _) =>
+            {
+                if (!_suppressShellEvents) ToggleShellRequested?.Invoke(_shellItem.Checked);
+            };
             menu.Items.Add(_shellItem);
 
             menu.Items.Add(new WinForms.ToolStripMenuItem("Open buckets folder", null,
@@ -69,9 +72,18 @@ namespace DesktopBuckets.Views
             };
         }
 
+        private bool _suppressShellEvents;
+
+        /// <summary>Reflects the real registration state without re-raising
+        /// <see cref="ToggleShellRequested"/>. Without the guard, declining the UAC prompt
+        /// (item checked, nothing registered) fed a "false" straight back into the
+        /// handler and kicked off an uninstall.</summary>
         public void SetShellChecked(bool value)
         {
-            if (_shellItem.Checked != value) _shellItem.Checked = value;
+            if (_shellItem.Checked == value) return;
+            _suppressShellEvents = true;
+            try { _shellItem.Checked = value; }
+            finally { _suppressShellEvents = false; }
         }
 
         public void ShowBalloon(string title, string text)

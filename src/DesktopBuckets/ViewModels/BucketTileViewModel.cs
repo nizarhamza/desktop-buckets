@@ -71,22 +71,26 @@ namespace DesktopBuckets.ViewModels
 
         // ---- file actions ------------------------------------------------
 
-        public void OpenFile(BucketFileViewModel vm)
+        /// <summary>Launches the file with its default handler. Returns an error message
+        /// when nothing happened (file gone, no handler, locked), or null on success.</summary>
+        public string? OpenFile(BucketFileViewModel vm)
         {
             if (!File.Exists(vm.FullPath))
             {
                 Refresh();
-                return;
+                return $"{vm.Name} is no longer in the bucket.";
             }
             try
             {
                 Process.Start(new ProcessStartInfo(vm.FullPath) { UseShellExecute = true });
                 Bucket.RecordOpened(vm.RelativePath);
                 Refresh();
+                return null;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"OpenFile failed: {ex.Message}");
+                Log.Error($"OpenFile failed: {vm.FullPath}", ex);
+                return $"Couldn't open {vm.Name}: {ex.Message}";
             }
         }
 
@@ -97,26 +101,37 @@ namespace DesktopBuckets.ViewModels
             Refresh();
         }
 
-        public void OpenContainingFolder()
+        public string? OpenContainingFolder()
         {
             try
             {
                 Directory.CreateDirectory(Bucket.FolderPath);
                 Process.Start(new ProcessStartInfo(Bucket.FolderPath) { UseShellExecute = true });
+                return null;
             }
-            catch (Exception ex) { Debug.WriteLine(ex.Message); }
+            catch (Exception ex)
+            {
+                Log.Error($"Open bucket folder failed: {Bucket.FolderPath}", ex);
+                return $"Couldn't open the bucket folder: {ex.Message}";
+            }
         }
 
-        public void RevealInExplorer(BucketFileViewModel vm)
+        public string? RevealInExplorer(BucketFileViewModel vm)
         {
             try
             {
                 if (File.Exists(vm.FullPath))
+                {
                     Process.Start("explorer.exe", $"/select,\"{vm.FullPath}\"");
-                else
-                    OpenContainingFolder();
+                    return null;
+                }
+                return OpenContainingFolder();
             }
-            catch (Exception ex) { Debug.WriteLine(ex.Message); }
+            catch (Exception ex)
+            {
+                Log.Error($"Reveal in Explorer failed: {vm.FullPath}", ex);
+                return $"Couldn't show {vm.Name} in Explorer: {ex.Message}";
+            }
         }
 
         public void SetSlotCount(int n)

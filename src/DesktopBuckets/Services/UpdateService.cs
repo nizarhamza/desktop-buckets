@@ -236,8 +236,12 @@ namespace DesktopBuckets.Services
                 return false;
             }
 
-            var target = Path.Combine(Path.GetTempPath(),
-                info.AssetName ?? $"DesktopBuckets-Setup-{info.DisplayVersion}.exe");
+            // AssetName comes from the GitHub API response: keep only the file name so a
+            // server-supplied value can't steer the path anywhere else.
+            var assetName = Path.GetFileName(info.AssetName ?? "");
+            if (string.IsNullOrWhiteSpace(assetName) || !assetName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                assetName = $"DesktopBuckets-Setup-{info.DisplayVersion}.exe";
+            var target = Path.Combine(Path.GetTempPath(), assetName);
 
             try
             {

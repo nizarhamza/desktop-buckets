@@ -1,8 +1,6 @@
 <Window x:Class="DesktopBuckets.Views.BucketTileWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:sys="clr-namespace:System;assembly=mscorlib"
-        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="Bucket"
         WindowStyle="None"
         AllowsTransparency="True"

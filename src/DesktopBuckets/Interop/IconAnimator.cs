@@ -98,7 +98,7 @@ namespace DesktopBuckets.Interop
 
         private static bool EnsureHandle()
         {
-            var lv = _tweens.Count > 0 ? default(IntPtr) : IntPtr.Zero;
+            IntPtr lv = IntPtr.Zero;
             foreach (var t in _tweens.Values) { lv = t.ListView; break; }
             if (lv == IntPtr.Zero) return false;
 
@@ -132,6 +132,34 @@ namespace DesktopBuckets.Interop
         {
             _timer?.Stop();
             ReleaseHandle();
+        }
+
+        /// <summary>Finish every in-flight tween at its end point and release the
+        /// explorer.exe handle + remote allocation. Call on app exit: otherwise a tween
+        /// still running when the process ends leaves the VirtualAllocEx block inside
+        /// explorer.exe until Explorer restarts.</summary>
+        public static void FlushAndRelease()
+        {
+            try
+            {
+                if (_tweens.Count > 0 && EnsureHandle())
+                {
+                    var buf = new byte[8];
+                    foreach (var t in _tweens.Values)
+                    {
+                        BitConverter.GetBytes((int)Math.Round(t.ToX)).CopyTo(buf, 0);
+                        BitConverter.GetBytes((int)Math.Round(t.ToY)).CopyTo(buf, 4);
+                        if (NativeMethods.WriteProcessMemory(_proc, _remote, buf, (IntPtr)8, out _))
+                            NativeMethods.SendMessage(t.ListView, NativeMethods.LVM_SETITEMPOSITION32, (IntPtr)t.Index, _remote);
+                    }
+                }
+            }
+            catch (Exception ex) { Services.Log.Error("IconAnimator flush failed", ex); }
+            finally
+            {
+                _tweens.Clear();
+                Shutdown();
+            }
         }
     }
 }

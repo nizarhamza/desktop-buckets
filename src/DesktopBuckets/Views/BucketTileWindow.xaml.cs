@@ -71,6 +71,7 @@ namespace DesktopBuckets.Views
             MouseDoubleClick += OnMouseDoubleClick;
             MouseMove += OnDragMouseMove;
             MouseLeftButtonUp += OnDragMouseUp;
+            LostMouseCapture += OnLostMouseCapture;
             Drop += OnDrop;
             DragEnter += OnDragOver;
             DragOver += OnDragOver;
@@ -333,7 +334,21 @@ namespace DesktopBuckets.Views
             if (!_dragging) return;
             _dragging = false;
             ReleaseMouseCapture();
+            FinishDrag();
+        }
 
+        /// <summary>Capture can be taken away mid-drag (UAC prompt, Win+D, display change,
+        /// alt-tab). Without this the tile stayed glued to the pointer until the next
+        /// click, with parked desktop icons left displaced.</summary>
+        private void OnLostMouseCapture(object? sender, MouseEventArgs e)
+        {
+            if (!_dragging) return;
+            _dragging = false;
+            FinishDrag();
+        }
+
+        private void FinishDrag()
+        {
             bool moved = Math.Abs(Left - _dragWinStart.X) > 6 || Math.Abs(Top - _dragWinStart.Y) > 6;
             if (moved && _vm.Bucket.Config.SnapToGrid && !_vm.Bucket.Config.Locked && _dragGridValid)
             {
@@ -372,11 +387,14 @@ namespace DesktopBuckets.Views
         private void OnMouseDoubleClick(object? sender, MouseButtonEventArgs e)
         {
             var file = HitTestFile(e.OriginalSource);
-            if (file != null)
-                _vm.OpenFile(file);
-            else
-                _vm.OpenContainingFolder();
+            Report(file != null ? _vm.OpenFile(file) : _vm.OpenContainingFolder());
             e.Handled = true;
+        }
+
+        /// <summary>Surface a user-initiated action's failure message (null = success).</summary>
+        private void Report(string? error)
+        {
+            if (error != null) _host.Notify(error);
         }
 
         private static BucketFileViewModel? HitTestFile(object? originalSource)
@@ -408,7 +426,7 @@ namespace DesktopBuckets.Views
 
         private void Ctx_OpenFile(object sender, RoutedEventArgs e)
         {
-            if (FileFromMenu(sender) is { } f) _vm.OpenFile(f);
+            if (FileFromMenu(sender) is { } f) Report(_vm.OpenFile(f));
         }
 
         private void Ctx_TogglePin(object sender, RoutedEventArgs e)
@@ -418,14 +436,20 @@ namespace DesktopBuckets.Views
 
         private void Ctx_Reveal(object sender, RoutedEventArgs e)
         {
-            if (FileFromMenu(sender) is { } f) _vm.RevealInExplorer(f);
+            if (FileFromMenu(sender) is { } f) Report(_vm.RevealInExplorer(f));
         }
 
         private void Ctx_CopyPath(object sender, RoutedEventArgs e)
         {
             if (FileFromMenu(sender) is { } f)
             {
-                try { Clipboard.SetText(f.FullPath); } catch (Exception) { }
+                try { Clipboard.SetText(f.FullPath); }
+                catch (Exception ex)
+                {
+                    // Another app holding the clipboard open is the usual cause.
+                    Log.Error("Copy path to clipboard failed", ex);
+                    Report("Couldn't copy the path — the clipboard is in use by another app.");
+                }
             }
         }
 
@@ -436,7 +460,7 @@ namespace DesktopBuckets.Views
             var menu = new ContextMenu();
 
             var open = new MenuItem { Header = "Open bucket folder" };
-            open.Click += (_, _) => _vm.OpenContainingFolder();
+            open.Click += (_, _) => Report(_vm.OpenContainingFolder());
             menu.Items.Add(open);
 
             var rename = new MenuItem { Header = "Rename bucket…" };
@@ -570,6 +594,10 @@ namespace DesktopBuckets.Views
 
             if (moved + copied + failed > 0)
                 Log.Info($"Drop on '{_vm.Bucket.Name}': {moved} moved, {copied} copied, {failed} failed.");
+            if (failed > 0)
+                Report(failed == 1
+                    ? $"One item couldn't be {(copy ? "copied" : "moved")} into “{_vm.Bucket.Name}”. See log.txt."
+                    : $"{failed} items couldn't be {(copy ? "copied" : "moved")} into “{_vm.Bucket.Name}”. See log.txt.");
 
             _vm.Refresh();
             e.Handled = true;
