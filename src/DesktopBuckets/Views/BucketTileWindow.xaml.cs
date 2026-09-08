@@ -111,7 +111,7 @@ namespace DesktopBuckets.Views
         {
             var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
             double sxx = dpi.DpiScaleX, syy = dpi.DpiScaleY;
-            var cell = DesktopShell.GetIconGrid().CellDip; // px
+            var cell = DesktopShell.GetIconGrid().CellPx;
 
             // The tile occupies a whole-cell block (footprint for snap + displacement),
             // but the visible window is inset by a margin and centred in that block — so

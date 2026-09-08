@@ -30,6 +30,7 @@ namespace DesktopBuckets.Interop
         // ---- Window messages -------------------------------------------
 
         public const int WM_WINDOWPOSCHANGING = 0x0046;
+        public const int WM_SETTINGCHANGE = 0x001A;
         public const int WM_DISPLAYCHANGE = 0x007E;
         public const int WM_DPICHANGED = 0x02E0;
 
@@ -124,12 +125,38 @@ namespace DesktopBuckets.Interop
         [DllImport("user32.dll", SetLastError = true)]
         public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+        // No plain SendMessage here on purpose: a message into explorer.exe must be
+        // able to give up. Use TrySendMessage.
+        public const uint SMTO_NORMAL = 0x0000;
+        public const uint SMTO_ABORTIFHUNG = 0x0002;
+
+        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        public static extern IntPtr SendMessageTimeout(
+            IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam,
+            uint fuFlags, uint uTimeout, out IntPtr lpdwResult);
+
+        /// <summary>How long a cross-process listview message may block the UI thread.
+        /// Every call into explorer.exe goes through <see cref="TrySendMessage"/> so a
+        /// hung Explorer (stalled shell extension, dead network drive) stalls us for at
+        /// most this long instead of forever.</summary>
+        public const uint ExplorerMessageTimeoutMs = 400;
+
+        /// <summary>SendMessage that gives up on a hung target. Returns false on timeout
+        /// or failure; <paramref name="result"/> is the message's return value on success.</summary>
+        public static bool TrySendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, out IntPtr result)
+        {
+            var ok = SendMessageTimeout(hWnd, msg, wParam, lParam,
+                SMTO_ABORTIFHUNG, ExplorerMessageTimeoutMs, out result);
+            return ok != IntPtr.Zero;
+        }
 
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
 
         public const uint PROCESS_VM_OPERATION = 0x0008;
         public const uint PROCESS_VM_READ = 0x0010;
@@ -207,6 +234,26 @@ namespace DesktopBuckets.Interop
             int len = 0;
             int rc = GetCurrentPackageFullName(ref len, null);
             return rc != 15700; // APPMODEL_ERROR_NO_PACKAGE
+        }
+
+        // ---- AppModel: is a package family registered for this user? ------
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetPackagesByPackageFamily(
+            string packageFamilyName, ref uint count, IntPtr packageFullNames,
+            ref uint bufferLength, IntPtr buffer);
+
+        private const int ERROR_SUCCESS = 0;
+        private const int ERROR_INSUFFICIENT_BUFFER = 122;
+
+        /// <summary>True when at least one package of <paramref name="familyName"/> is
+        /// registered for the current user. In-process and instant — the replacement
+        /// for spawning <c>powershell Get-AppxPackage</c>.</summary>
+        public static bool IsPackageFamilyInstalled(string familyName)
+        {
+            uint count = 0, bufLen = 0;
+            int rc = GetPackagesByPackageFamily(familyName, ref count, IntPtr.Zero, ref bufLen, IntPtr.Zero);
+            return (rc == ERROR_SUCCESS || rc == ERROR_INSUFFICIENT_BUFFER) && count > 0;
         }
 
         // ---- Shell: icon extraction --------------------------------------

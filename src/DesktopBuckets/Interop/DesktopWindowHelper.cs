@@ -45,6 +45,11 @@ namespace DesktopBuckets.Interop
 
         private static IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
+            // The desktop grid can only change when the display, DPI or icon-spacing
+            // settings do; drop DesktopShell's cached grid on those.
+            if (msg is NativeMethods.WM_DISPLAYCHANGE or NativeMethods.WM_DPICHANGED or NativeMethods.WM_SETTINGCHANGE)
+                DesktopShell.InvalidateGridCache();
+
             if (msg == NativeMethods.WM_WINDOWPOSCHANGING)
             {
                 // Veto any attempt by the shell / other apps to raise us above

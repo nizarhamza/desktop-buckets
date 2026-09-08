@@ -12,32 +12,37 @@ namespace DesktopBuckets.Interop
     /// </summary>
     internal static class DesktopShell
     {
-        /// <summary>The desktop icon grid, in device-independent units.</summary>
+        /// <summary>The desktop icon grid. <b>Every value is in desktop-listview client
+        /// pixels</b> — the frame raw <c>LVM_GETITEMPOSITION</c> reports in — never WPF
+        /// DIPs. Convert through the window's DPI scale at the edge, not here.</summary>
         public readonly struct IconGrid
         {
-            public readonly Point OriginDip;
-            public readonly Size CellDip;
+            public readonly Point OriginPx;
+            public readonly Size CellPx;
             public readonly List<Rect> Icons;
 
             public IconGrid(Point origin, Size cell, List<Rect> icons)
             {
-                OriginDip = origin; CellDip = cell; Icons = icons;
+                OriginPx = origin; CellPx = cell; Icons = icons;
             }
 
-            public bool Valid => CellDip.Width > 4 && CellDip.Height > 4;
+            public bool Valid => CellPx.Width > 4 && CellPx.Height > 4;
 
             public (int col, int row) CellOf(Point p) => (
-                (int)Math.Round((p.X - OriginDip.X) / CellDip.Width),
-                (int)Math.Round((p.Y - OriginDip.Y) / CellDip.Height));
+                (int)Math.Round((p.X - OriginPx.X) / CellPx.Width),
+                (int)Math.Round((p.Y - OriginPx.Y) / CellPx.Height));
 
             public Point CellTopLeft(int col, int row) =>
-                new(OriginDip.X + col * CellDip.Width, OriginDip.Y + row * CellDip.Height);
+                new(OriginPx.X + col * CellPx.Width, OriginPx.Y + row * CellPx.Height);
 
             public Rect CellRect(int col, int row)
             {
                 var tl = CellTopLeft(col, row);
-                return new Rect(tl.X, tl.Y, CellDip.Width, CellDip.Height);
+                return new Rect(tl.X, tl.Y, CellPx.Width, CellPx.Height);
             }
+
+            internal bool SameAs(in IconGrid other) =>
+                OriginPx == other.OriginPx && CellPx == other.CellPx && Icons.Count == other.Icons.Count;
 
             /// <summary>Snap a point to the nearest grid cell's top-left (regular lattice).</summary>
             public Point Snap(Point p)
@@ -76,9 +81,33 @@ namespace DesktopBuckets.Interop
             return lv != IntPtr.Zero && NativeMethods.GetWindowRect(lv, out rect);
         }
 
+        // Reading the grid means a handle on explorer.exe plus two cross-process calls
+        // per desktop icon. It is asked for on every tile refresh, pin toggle and drop,
+        // so cache it briefly and drop the cache when the shell tells us something
+        // changed (display / DPI / SPI settings via InvalidateGridCache).
+        private static readonly TimeSpan GridCacheTtl = TimeSpan.FromSeconds(1);
+        private static IconGrid _cachedGrid;
+        private static DateTime _cachedGridAt = DateTime.MinValue;
+        private static IconGrid _lastLoggedGrid;
+        private static bool _loggedOnce;
+
+        /// <summary>Forget the cached grid (display / DPI / icon-spacing change).</summary>
+        public static void InvalidateGridCache() => _cachedGridAt = DateTime.MinValue;
+
         /// <summary>Real desktop grid in client px: origin = first column/row line,
-        /// cell = measured pitch (spacing metric only as fallback).</summary>
-        public static IconGrid GetIconGrid(Visual? forWindow = null)
+        /// cell = measured pitch (spacing metric only as fallback). Cached for
+        /// <see cref="GridCacheTtl"/>; pass <paramref name="fresh"/> to bypass.</summary>
+        public static IconGrid GetIconGrid(bool fresh = false)
+        {
+            if (!fresh && DateTime.UtcNow - _cachedGridAt < GridCacheTtl)
+                return _cachedGrid;
+            var grid = ReadIconGrid();
+            _cachedGrid = grid;
+            _cachedGridAt = DateTime.UtcNow;
+            return grid;
+        }
+
+        private static IconGrid ReadIconGrid()
         {
             var icons = DesktopIconCells();
             var spi = GridCellPx();
@@ -101,16 +130,16 @@ namespace DesktopBuckets.Interop
             double oy = ModalPhase(icons.ConvertAll(r => r.Y), ch, rows[0]);
 
             var grid = new IconGrid(new Point(ox, oy), new Size(cw, ch), icons);
-            Services.Log.Info($"IconGrid(px): origin=({ox:F0},{oy:F0}) cell={cw:F0}x{ch:F0} " +
-                              $"cols={cols.Count} rows={rows.Count} icons={icons.Count}");
+            // Log only when the answer changes — this used to be a locked file append
+            // on the UI thread for every refresh.
+            if (!_loggedOnce || !grid.SameAs(_lastLoggedGrid))
+            {
+                Services.Log.Info($"IconGrid(px): origin=({ox:F0},{oy:F0}) cell={cw:F0}x{ch:F0} " +
+                                  $"cols={cols.Count} rows={rows.Count} icons={icons.Count}");
+                _lastLoggedGrid = grid;
+                _loggedOnce = true;
+            }
             return grid;
-        }
-
-        /// <summary>Snap a client-px top-left to the regular icon lattice.</summary>
-        public static Point SnapToIconLattice(Point clientTopLeftPx)
-        {
-            var grid = GetIconGrid();
-            return grid.Valid ? grid.Snap(clientTopLeftPx) : clientTopLeftPx;
         }
 
         private static System.Collections.Generic.List<double> ClusterAxis(
@@ -201,9 +230,9 @@ namespace DesktopBuckets.Interop
         {
             WithListView((lv, proc, remote) =>
             {
-                int count = (int)NativeMethods.SendMessage(lv, NativeMethods.LVM_GETITEMCOUNT, IntPtr.Zero, IntPtr.Zero);
+                int count = ItemCount(lv);
                 if (count <= 0 || count > 5000) return;
-                var grid0 = GetIconGrid();
+                var grid0 = GetIconGrid(fresh: true); // a drag snapshot must not be a stale cache hit
                 if (!grid0.Valid) return;
                 var pos0 = ReadPositions(lv, proc, remote, count);
                 state.Grid = grid0;
@@ -229,6 +258,12 @@ namespace DesktopBuckets.Interop
             {
                 if ((NativeMethods.GetWindowLong(lv, NativeMethods.GWL_STYLE) & NativeMethods.LVS_AUTOARRANGE) != 0)
                     return;
+
+                // Bounds for parking icons = the listview's own client area, in the same
+                // px frame as the cells. (SystemParameters.WorkArea is primary-monitor
+                // DIPs; at 150% it rejected every cell in the right/bottom third.)
+                if (!NativeMethods.GetClientRect(lv, out var cr)) return;
+                var bounds = new Rect(0, 0, cr.Right - cr.Left, cr.Bottom - cr.Top);
 
                 var grid = state.Grid;
                 var fpInset = Inset(footprintPx, 4);
@@ -272,7 +307,7 @@ namespace DesktopBuckets.Interop
                     if (state.Parked.ContainsKey(idx) || !reserved.Contains(home)) continue;
                     if (state.Parked.Count >= 30) break;
 
-                    var free = FindFreeCell(grid, home, reserved, occupied, SystemParameters.WorkArea, fpInset);
+                    var free = FindFreeCell(grid, home, reserved, occupied, bounds, fpInset);
                     if (free is not { } f) continue;
 
                     var homePx = grid.CellTopLeft(home.col, home.row);
@@ -302,7 +337,13 @@ namespace DesktopBuckets.Interop
             });
         }
 
-        /// <summary>Raw icon positions in listview-client px (NaN for unreadable items).</summary>
+        /// <summary>LVM_GETITEMCOUNT, or -1 if Explorer didn't answer in time.</summary>
+        private static int ItemCount(IntPtr lv) =>
+            NativeMethods.TrySendMessage(lv, NativeMethods.LVM_GETITEMCOUNT, IntPtr.Zero, IntPtr.Zero, out var n)
+                ? (int)n : -1;
+
+        /// <summary>Raw icon positions in listview-client px (NaN for unreadable items).
+        /// Stops early if Explorer stops answering, rather than timing out per icon.</summary>
         private static Point[] ReadPositions(IntPtr lv, IntPtr proc, IntPtr remote, int count)
         {
             var pos = new Point[count];
@@ -310,7 +351,13 @@ namespace DesktopBuckets.Interop
             for (int i = 0; i < count; i++)
             {
                 pos[i] = new Point(double.NaN, double.NaN);
-                if (NativeMethods.SendMessage(lv, NativeMethods.LVM_GETITEMPOSITION, (IntPtr)i, remote) == IntPtr.Zero) continue;
+                if (!NativeMethods.TrySendMessage(lv, NativeMethods.LVM_GETITEMPOSITION, (IntPtr)i, remote, out var ok))
+                {
+                    Services.Log.Error($"Explorer did not answer LVM_GETITEMPOSITION for item {i}; giving up on this read.");
+                    for (int j = i + 1; j < count; j++) pos[j] = new Point(double.NaN, double.NaN);
+                    break;
+                }
+                if (ok == IntPtr.Zero) continue;
                 if (!NativeMethods.ReadProcessMemory(proc, remote, buf, (IntPtr)8, out _)) continue;
                 pos[i] = new Point(BitConverter.ToInt32(buf, 0), BitConverter.ToInt32(buf, 4));
             }
@@ -379,7 +426,7 @@ namespace DesktopBuckets.Interop
             var cell = GridCellPx();
             WithListView((lv, proc, remote) =>
             {
-                int count = (int)NativeMethods.SendMessage(lv, NativeMethods.LVM_GETITEMCOUNT, IntPtr.Zero, IntPtr.Zero);
+                int count = ItemCount(lv);
                 if (count <= 0 || count > 5000) return;
                 var pos = ReadPositions(lv, proc, remote, count);
                 foreach (var p in pos)

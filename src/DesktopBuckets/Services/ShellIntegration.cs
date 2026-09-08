@@ -84,27 +84,51 @@ namespace DesktopBuckets.Services
 
         // ---- packaged mode helpers ------------------------------------
 
+        /// <summary>Publisher string in the package manifest; the family name hashes it.</summary>
+        private const string PackagePublisher = "CN=DesktopBuckets Dev";
+
+        private static readonly string PackageFamilyName =
+            PackageName + "_" + PublisherIdHash(PackagePublisher);
+
+        /// <summary>In-process, instant: asks the AppModel API whether the package family
+        /// is registered for this user. Replaces spawning <c>powershell Get-AppxPackage</c>,
+        /// which blocked the UI thread for seconds at startup and when opening menus.</summary>
         private static bool QueryPackageInstalled()
         {
             try
             {
-                var psi = new ProcessStartInfo("powershell",
-                    $"-NoProfile -ExecutionPolicy Bypass -Command \"if (Get-AppxPackage -Name {PackageName}) {{ exit 0 }} else {{ exit 1 }}\"")
-                {
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                };
-                using var p = Process.Start(psi)!;
-                p.WaitForExit(8000);
-                return p.HasExited && p.ExitCode == 0;
+                return Interop.NativeMethods.IsPackageFamilyInstalled(PackageFamilyName);
             }
             catch (Exception ex)
             {
                 Log.Error("QueryPackageInstalled failed", ex);
                 return false;
             }
+        }
+
+        /// <summary>The 13-character publisher id Windows appends to a package family
+        /// name: first 8 bytes of SHA-256 over the UTF-16LE publisher string, encoded
+        /// as 65 bits of Crockford base32.</summary>
+        internal static string PublisherIdHash(string publisher)
+        {
+            var hash = System.Security.Cryptography.SHA256.HashData(Encoding.Unicode.GetBytes(publisher));
+            const string alphabet = "0123456789abcdefghjkmnpqrstvwxyz";
+            // 8 bytes = 64 bits, padded with one zero bit to 65 = 13 × 5.
+            ulong bits = 0;
+            for (int i = 0; i < 8; i++) bits = (bits << 8) | hash[i];
+            var sb = new StringBuilder(13);
+            for (int i = 0; i < 13; i++)
+            {
+                // The 65-bit value is (bits << 1); group i is its bits [64-5i .. 60-5i],
+                // i.e. (bits << 1) >> (60 - 5i) == bits >> (59 - 5i); the last group
+                // needs the padding bit, so it shifts left instead.
+                int shift = 59 - i * 5;
+                ulong group = shift >= 0
+                    ? (bits >> shift) & 0x1F
+                    : (bits << -shift) & 0x1F;
+                sb.Append(alphabet[(int)group]);
+            }
+            return sb.ToString();
         }
 
         /// <summary>How long the elevated helper may run before we stop waiting for it.

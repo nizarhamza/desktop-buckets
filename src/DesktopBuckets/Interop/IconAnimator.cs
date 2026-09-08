@@ -83,7 +83,7 @@ namespace DesktopBuckets.Interop
                     BitConverter.GetBytes(x).CopyTo(buf, 0);
                     BitConverter.GetBytes(y).CopyTo(buf, 4);
                     if (NativeMethods.WriteProcessMemory(_proc, _remote, buf, (IntPtr)8, out _))
-                        NativeMethods.SendMessage(t.ListView, NativeMethods.LVM_SETITEMPOSITION32, (IntPtr)t.Index, _remote);
+                        NativeMethods.TrySendMessage(t.ListView, NativeMethods.LVM_SETITEMPOSITION32, (IntPtr)t.Index, _remote, out _);
                 }
 
                 foreach (var i in done) _tweens.Remove(i);
@@ -150,7 +150,7 @@ namespace DesktopBuckets.Interop
                         BitConverter.GetBytes((int)Math.Round(t.ToX)).CopyTo(buf, 0);
                         BitConverter.GetBytes((int)Math.Round(t.ToY)).CopyTo(buf, 4);
                         if (NativeMethods.WriteProcessMemory(_proc, _remote, buf, (IntPtr)8, out _))
-                            NativeMethods.SendMessage(t.ListView, NativeMethods.LVM_SETITEMPOSITION32, (IntPtr)t.Index, _remote);
+                            NativeMethods.TrySendMessage(t.ListView, NativeMethods.LVM_SETITEMPOSITION32, (IntPtr)t.Index, _remote, out _);
                     }
                 }
             }
