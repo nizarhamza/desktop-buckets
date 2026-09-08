@@ -61,7 +61,7 @@ namespace DesktopBuckets.Services
         {
             if (PackagedModeAvailable)
             {
-                RunElevated($"-cer \"{CerPath}\" -msix \"{MsixPath}\" -extloc \"{BaseDir.TrimEnd('\\')}\" -action install");
+                RunElevated(BuildElevatedScript("install"));
                 _cachedRegistered = null;
                 return;
             }
@@ -107,15 +107,19 @@ namespace DesktopBuckets.Services
             }
         }
 
-        /// <summary>Writes the helper script, then runs it elevated. Throws
-        /// <see cref="OperationCanceledException"/> if the user declines the UAC prompt.</summary>
-        private static void RunElevated(string args)
-        {
-            var script = Path.Combine(Path.GetTempPath(), "DesktopBuckets.shellext.ps1");
-            File.WriteAllText(script, ElevatedScript, new UTF8Encoding(false));
+        /// <summary>How long the elevated helper may run before we stop waiting for it.
+        /// It restarts Explorer, so allow a generous window.</summary>
+        private static readonly TimeSpan ElevatedTimeout = TimeSpan.FromMinutes(2);
 
+        /// <summary>Runs <paramref name="script"/> elevated. The script travels on the
+        /// command line as <c>-EncodedCommand</c> — it never touches disk, so there is no
+        /// user-writable file for another process to swap before it runs as admin.
+        /// Throws <see cref="OperationCanceledException"/> if the user declines UAC.</summary>
+        private static void RunElevated(string script)
+        {
+            var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
             var psi = new ProcessStartInfo("powershell",
-                $"-NoProfile -ExecutionPolicy Bypass -File \"{script}\" {args}")
+                $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded}")
             {
                 UseShellExecute = true,
                 Verb = "runas",
@@ -125,7 +129,11 @@ namespace DesktopBuckets.Services
             try
             {
                 using var p = Process.Start(psi)!;
-                p.WaitForExit();
+                if (!p.WaitForExit((int)ElevatedTimeout.TotalMilliseconds))
+                {
+                    Log.Error($"Elevated shell-ext script did not finish within {ElevatedTimeout.TotalSeconds:F0}s; giving up on it.");
+                    return;
+                }
                 if (p.ExitCode != 0)
                     Log.Error($"Elevated shell-ext script exited {p.ExitCode}");
             }
@@ -134,6 +142,16 @@ namespace DesktopBuckets.Services
                 throw new OperationCanceledException("The elevation prompt was declined.", ex);
             }
         }
+
+        /// <summary>Single-quoted PowerShell string literal (the only escape is <c>''</c>).</summary>
+        private static string PsQuote(string s) => "'" + s.Replace("'", "''") + "'";
+
+        private static string BuildElevatedScript(string action) =>
+            ElevatedScriptTemplate
+                .Replace("__ACTION__", PsQuote(action))
+                .Replace("__CER__", PsQuote(CerPath))
+                .Replace("__MSIX__", PsQuote(MsixPath))
+                .Replace("__EXTLOC__", PsQuote(BaseDir.TrimEnd('\\')));
 
         private static void RunPowerShell(string command, bool elevated, bool wait)
         {
@@ -157,24 +175,33 @@ namespace DesktopBuckets.Services
             }
         }
 
-        // Trusts the bundled dev cert (machine store) and registers / removes the
-        // sparse package. Args: -action install|uninstall -cer <p> -msix <p> -extloc <dir>
-        private const string ElevatedScript = @"
-param(
-  [string]$action = 'install',
-  [string]$cer,
-  [string]$msix,
-  [string]$extloc
-)
+        // Trusts the bundled dev cert and registers / removes the sparse package.
+        // Placeholders are replaced with single-quoted literals by BuildElevatedScript.
+        //
+        // Sideloading a signed package needs the cert in TrustedPeople ONLY. Earlier
+        // builds also imported it into Root, which made the dev key a trusted
+        // certificate authority for the whole machine — so every run removes it from
+        // Root again, on install as well as uninstall.
+        private const string ElevatedScriptTemplate = @"
 $ErrorActionPreference = 'Stop'
+$action = __ACTION__
+$cer    = __CER__
+$msix   = __MSIX__
+$extloc = __EXTLOC__
 try {
+  $thumb = (New-Object System.Security.Cryptography.X509Certificates.X509Certificate2 $cer).Thumbprint
+  Get-ChildItem Cert:\LocalMachine\Root |
+    Where-Object { $_.Thumbprint -eq $thumb } |
+    Remove-Item -ErrorAction SilentlyContinue
   if ($action -eq 'install') {
     Import-Certificate -FilePath $cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
-    Import-Certificate -FilePath $cer -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
     Add-AppxPackage -Path $msix -ExternalLocation $extloc -ForceApplicationShutdown
   }
   else {
     Get-AppxPackage -Name 'DesktopBuckets.ShellExt' | Remove-AppxPackage -ErrorAction SilentlyContinue
+    Get-ChildItem Cert:\LocalMachine\TrustedPeople |
+      Where-Object { $_.Thumbprint -eq $thumb } |
+      Remove-Item -ErrorAction SilentlyContinue
   }
   # Reload Explorer so the menu updates immediately.
   Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue

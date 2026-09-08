@@ -301,7 +301,7 @@ namespace DesktopBuckets.Services
 
         // ---- helpers ----------------------------------------------
 
-        private static Version? ParseVersion(string? s)
+        internal static Version? ParseVersion(string? s)
         {
             if (string.IsNullOrWhiteSpace(s)) return null;
             s = s.Trim();

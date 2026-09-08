@@ -9,7 +9,7 @@ resolved from <app dir> at runtime.
 param(
     [string]$Version = "0.1.0.0",
     [string]$PfxPath = "$PSScriptRoot\DesktopBuckets-Dev.pfx",
-    [string]$PfxPassword = "desktopbuckets",
+    [Parameter(Mandatory = $true)][string]$PfxPassword,
     [string]$OutDir = "$PSScriptRoot\out"
 )
 

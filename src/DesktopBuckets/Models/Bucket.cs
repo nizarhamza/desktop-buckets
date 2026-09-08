@@ -209,7 +209,21 @@ namespace DesktopBuckets.Models
             name = name.Trim();
             foreach (var c in Path.GetInvalidFileNameChars())
                 name = name.Replace(c.ToString(), string.Empty);
-            return name.Trim().TrimEnd('.');
+            name = name.Trim().TrimEnd('.');
+
+            // CON, PRN, AUX, NUL, COM1-9, LPT1-9 are reserved device names on Windows
+            // (with or without an extension); a folder by that name can't be created.
+            var stem = name.Split('.', 2)[0];
+            if (ReservedDeviceNames.Contains(stem))
+                name = "_" + name;
+            return name;
         }
+
+        private static readonly HashSet<string> ReservedDeviceNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "CON", "PRN", "AUX", "NUL",
+            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        };
     }
 }

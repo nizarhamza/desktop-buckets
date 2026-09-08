@@ -14,7 +14,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Gate: nothing is published unless the solution compiles and the tests pass.
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build
+        run: dotnet build DesktopBuckets.sln -c Release --nologo
+
+      - name: Test
+        run: dotnet test DesktopBuckets.sln -c Release --no-build --nologo
+
   build:
+    needs: test
     runs-on: windows-latest
 
     steps:
@@ -78,7 +95,11 @@ jobs:
           Copy-Item native/ShellExt/out/DesktopBuckets.ShellExt.dll publish/ -Force
           Copy-Item packaging/out/DesktopBuckets.Package.msix        publish/ -Force
           Copy-Item packaging/DesktopBuckets.cer                     publish/ -Force
-          Remove-Item packaging/DesktopBuckets-Dev.pfx -Force
+
+      - name: Remove signing key from the runner
+        if: always()
+        shell: pwsh
+        run: Remove-Item packaging/DesktopBuckets-Dev.pfx -Force -ErrorAction SilentlyContinue
 
       - name: Ensure Inno Setup
         shell: pwsh

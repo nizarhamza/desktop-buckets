@@ -22,7 +22,11 @@ namespace DesktopBuckets.Services
             if (slots <= 0 || files.Count == 0)
                 return System.Array.Empty<BucketFile>();
 
-            var byRel = files.ToDictionary(f => f.RelativePath, System.StringComparer.OrdinalIgnoreCase);
+            // TryAdd, not ToDictionary: a case-sensitive directory (Windows 10+ supports
+            // per-directory case sensitivity) can hold Notes.txt and notes.txt at once,
+            // and ToDictionary would throw on the duplicate key every watcher tick.
+            var byRel = new Dictionary<string, BucketFile>(files.Count, System.StringComparer.OrdinalIgnoreCase);
+            foreach (var f in files) byRel.TryAdd(f.RelativePath, f);
 
             var ordered = new List<BucketFile>(slots);
             var used = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
