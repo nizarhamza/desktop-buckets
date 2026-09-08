@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using DesktopBuckets.Services;
@@ -134,6 +135,28 @@ namespace DesktopBuckets.Views
             _loading = true;
             ShellMenuCheck.IsChecked = _host.ShellIntegrationEnabled;
             _loading = false;
+        }
+
+        private async void RealignIcons_Click(object sender, RoutedEventArgs e)
+        {
+            RealignButton.IsEnabled = false;
+            RealignStatusText.Text = "Aligning…";
+            try
+            {
+                int moved = await Task.Run(() =>
+                {
+                    Interop.DesktopShell.EnsureSnapToGridDisabled();
+                    return Interop.DesktopShell.RealignAllIconsToGrid();
+                });
+                RealignStatusText.Text = moved == 0 ? "Already aligned."
+                    : moved == 1 ? "Realigned 1 icon." : $"Realigned {moved} icons.";
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Realign icons to grid (from Settings) failed", ex);
+                RealignStatusText.Text = "Couldn't realign icons — see log.txt.";
+            }
+            finally { RealignButton.IsEnabled = true; }
         }
 
         private void Close_Click(object sender, RoutedEventArgs e) => Close();

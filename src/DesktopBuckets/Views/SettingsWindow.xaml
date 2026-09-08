@@ -101,6 +101,14 @@
         <TextBlock Text="Turning this on asks for approval once."
                    Foreground="#FF9A9AA6" FontSize="11" Margin="20,3,0,0" />
 
+        <StackPanel Orientation="Horizontal" Margin="0,14,0,0" VerticalAlignment="Center">
+            <Button x:Name="RealignButton" Content="Align icons to grid" Click="RealignIcons_Click" />
+            <TextBlock x:Name="RealignStatusText" Text="" Foreground="#FF9A9AA6"
+                       VerticalAlignment="Center" Margin="12,0,0,0" />
+        </StackPanel>
+        <TextBlock Text="Snaps any desktop icon that has drifted off this app's grid. Windows' own “Align icons to grid” is kept off so it can't fight tile placement — use this instead."
+                   Foreground="#FF9A9AA6" FontSize="11" TextWrapping="Wrap" Margin="0,3,0,0" />
+
         <Border Height="1" Background="#FF3A3A44" Margin="0,20,0,0" />
 
         <!-- Data -->

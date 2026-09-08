@@ -103,23 +103,26 @@
                            Visibility="{Binding IsEmpty, Converter={StaticResource BoolVis}}" />
             </Grid>
 
-            <TextBlock Text="{Binding Name}"
-                       Foreground="#FFF3F3F3"
-                       FontSize="11"
-                       FontWeight="SemiBold"
-                       HorizontalAlignment="Center"
-                       TextAlignment="Center"
-                       TextTrimming="CharacterEllipsis"
-                       TextWrapping="NoWrap"
-                       MaxWidth="180"
-                       Margin="4,5,4,0"
-                       ToolTip="{Binding OverflowTooltip}">
-                <TextBlock.Effect>
-                    <!-- A soft dark halo keeps the name legible over bright or busy
-                         wallpaper showing through the glass, without a hard outline. -->
-                    <DropShadowEffect Color="#FF000000" Opacity="0.65" BlurRadius="4" ShadowDepth="0" />
-                </TextBlock.Effect>
-            </TextBlock>
+            <!-- A dedicated dark pill behind the name — not just a drop shadow —
+                 guarantees contrast no matter how bright the wallpaper showing through
+                 the glass card is; a shadow alone can wash out over a light background.
+                 Width tracks the icon area itself (not a guessed fixed number), so it's
+                 correctly sized whether the tile is a narrow 1x2 or a wide 3x3. -->
+            <Border Background="#66000000"
+                    CornerRadius="5"
+                    Padding="7,2"
+                    Margin="0,7,0,0"
+                    HorizontalAlignment="Center"
+                    MaxWidth="{Binding ActualWidth, ElementName=SlotArea}">
+                <TextBlock Text="{Binding Name}"
+                           Foreground="White"
+                           FontSize="12"
+                           FontWeight="Bold"
+                           TextAlignment="Center"
+                           TextTrimming="CharacterEllipsis"
+                           TextWrapping="NoWrap"
+                           ToolTip="{Binding OverflowTooltip}" />
+            </Border>
         </StackPanel>
     </Border>
 </Window>
