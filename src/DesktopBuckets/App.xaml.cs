@@ -42,6 +42,20 @@ namespace DesktopBuckets
                 Shutdown();
                 return;
             }
+            // Same job as the tray's / Settings' "Align icons to grid", runnable without
+            // a running instance — handy for a scheduled task or scripted recovery.
+            if (e.Args.Any(a => a.Equals("--realign-now", StringComparison.OrdinalIgnoreCase)))
+            {
+                try
+                {
+                    Interop.DesktopShell.EnsureSnapToGridDisabled();
+                    int moved = Interop.DesktopShell.RealignAllIconsToGrid();
+                    Services.Log.Info($"--realign-now moved {moved} icon(s).");
+                }
+                catch (Exception ex) { Services.Log.Error("--realign-now failed", ex); }
+                Shutdown();
+                return;
+            }
 
             _single = new SingleInstance();
             if (!_single.IsPrimary)

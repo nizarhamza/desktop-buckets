@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Media;
 
@@ -406,16 +407,33 @@ namespace DesktopBuckets.Interop
                     if (count <= 0 || count > 5000) return;
                     var pos = ReadPositions(lv, proc, remote, count);
 
-                    int stagger = 0;
+                    // The icon IMAGE sits inset within its cell (24,2 px typically) — the
+                    // same measurement MakeSpace uses. Snapping to the bare cell corner
+                    // (grid.Snap alone) puts every icon at the wrong sub-cell position.
+                    var pad = MedianPhase(grid, pos.Where(p => !double.IsNaN(p.X)));
+
+                    // Two icons that started close together can round to the SAME
+                    // nearest cell; moving both there without checking leaves them
+                    // exactly on top of each other (overlapping icon + garbled,
+                    // interleaved label text) — resolved by ResolveCellCollisions.
+                    var home = new Dictionary<int, (int col, int row)>();
                     for (int i = 0; i < count; i++)
+                        if (!double.IsNaN(pos[i].X)) home[i] = grid.CellOf(pos[i]);
+
+                    var finalCell = ResolveCellCollisions(home, grid);
+                    int reHomedCount = home.Count - finalCell.Count(kv => home[kv.Key] == kv.Value);
+
+                    int stagger = 0;
+                    foreach (var kv in finalCell)
                     {
-                        if (double.IsNaN(pos[i].X)) continue;
-                        var snapped = grid.Snap(pos[i]);
-                        if (Math.Abs(snapped.X - pos[i].X) < 1 && Math.Abs(snapped.Y - pos[i].Y) < 1) continue;
-                        IconAnimator.Move(lv, i, pos[i], snapped, delayMs: Math.Min(stagger++ * 12, 400));
+                        int i = kv.Key;
+                        var tl = grid.CellTopLeft(kv.Value.col, kv.Value.row);
+                        var target = new Point(tl.X + pad.X, tl.Y + pad.Y);
+                        if (Math.Abs(target.X - pos[i].X) < 1 && Math.Abs(target.Y - pos[i].Y) < 1) continue;
+                        IconAnimator.Move(lv, i, pos[i], target, delayMs: Math.Min(stagger++ * 12, 400));
                         moved++;
                     }
-                    Services.Log.Info($"Realign to grid: moved {moved} of {count} icon(s).");
+                    Services.Log.Info($"Realign to grid: moved {moved} of {count} icon(s), {reHomedCount} re-homed to resolve a collision.");
                 });
             }
             catch (Exception ex) { Services.Log.Error("RealignAllIconsToGrid failed", ex); }
@@ -565,6 +583,37 @@ namespace DesktopBuckets.Interop
         ///
         /// Pure and side-effect-free — no WithListView, no live desktop — so it can be
         /// exercised directly by tests with a synthetic layout.</summary>
+        /// <summary>Given each icon's "natural" grid cell, returns a collision-free
+        /// mapping: an icon whose cell nobody else claimed keeps it; when two or more
+        /// icons compute the SAME natural cell (they started close enough together that
+        /// rounding put them there), only the first (by dictionary enumeration order)
+        /// keeps it — the rest re-home to the nearest free cell on their own monitor.
+        /// Without this, snapping every icon independently to its own nearest cell can
+        /// leave two of them landing exactly on top of each other: one icon rendered
+        /// over another, with both labels visually interleaved into garbled text.
+        /// Pure — no OS calls — so it's directly unit-testable.</summary>
+        internal static Dictionary<int, (int col, int row)> ResolveCellCollisions(
+            IReadOnlyDictionary<int, (int col, int row)> home, IconGrid grid)
+        {
+            var claimed = new HashSet<(int, int)>();
+            var final = new Dictionary<int, (int col, int row)>();
+            var needsNewHome = new List<int>();
+            foreach (var kv in home)
+            {
+                if (claimed.Add(kv.Value)) final[kv.Key] = kv.Value;
+                else needsNewHome.Add(kv.Key);
+            }
+            foreach (var i in needsNewHome)
+            {
+                var bounds = grid.MonitorRect(home[i].col);
+                if (FindFreeCell(grid, home[i], new HashSet<(int, int)>(), claimed, bounds, Rect.Empty) is not { } free)
+                    continue; // monitor is completely full; leave this one where it is (still a collision)
+                claimed.Add(free);
+                final[i] = free;
+            }
+            return final;
+        }
+
         internal static ColumnPushResult ComputeColumnPush(
             IReadOnlyDictionary<int, (int col, int row)> iconCells,
             int tileLeft, int tileRight, int tileTop, int tileBottom,
@@ -678,13 +727,19 @@ namespace DesktopBuckets.Interop
 
         /// <summary>Median offset of the icons from their cell corners: where the icon
         /// image sits inside its cell.</summary>
-        private static Point IconPadding(IconGrid grid, DragDisplacement state)
+        private static Point IconPadding(IconGrid grid, DragDisplacement state) =>
+            MedianPhase(grid, state.HomePx.Values);
+
+        /// <summary>Median cell-phase across a set of icon positions: where, typically,
+        /// the icon image sits inset within its cell. Robust to a handful of outliers
+        /// (parked/off-grid icons) the way an average wouldn't be.</summary>
+        private static Point MedianPhase(IconGrid grid, IEnumerable<Point> positions)
         {
             var xs = new List<double>();
             var ys = new List<double>();
-            foreach (var kv in state.HomePx)
+            foreach (var p in positions)
             {
-                var ph = grid.PhaseOf(kv.Value);
+                var ph = grid.PhaseOf(p);
                 xs.Add(ph.X); ys.Add(ph.Y);
             }
             if (xs.Count == 0) return new Point(0, 0);
