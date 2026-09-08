@@ -277,6 +277,11 @@ namespace DesktopBuckets.Interop
             var cell = GridCellPx();
             sb.AppendLine($"cell (LVM_GETITEMSPACING or fallback)={cell.Width}x{cell.Height}");
             var grid = GetIconGrid(fresh: true);
+            {
+                var xs = new List<double>(); var ys = new List<double>();
+                foreach (var r in grid.Icons) { var ph = grid.PhaseOf(r.TopLeft); xs.Add(ph.X); ys.Add(ph.Y); }
+                if (xs.Count > 0) { xs.Sort(); ys.Sort(); sb.AppendLine($"icon padding (median phase)=({xs[xs.Count / 2]:F0},{ys[ys.Count / 2]:F0})"); }
+            }
             for (int i = 0; i < grid.Monitors.Count; i++)
                 sb.AppendLine($"monitor {i} work area (client px)=({grid.Monitors[i].X},{grid.Monitors[i].Y}) {grid.Monitors[i].Width}x{grid.Monitors[i].Height}");
             sb.AppendLine($"icons={grid.Icons.Count} valid={grid.Valid}");
@@ -354,13 +359,19 @@ namespace DesktopBuckets.Interop
             return state.Grid;
         }
 
-        /// <summary>Push the icons under <paramref name="footprintPx"/> out of the way the
-        /// way a phone home screen does: each one flows forward in the desktop's own
-        /// order (down its column, then the top of the next column), and an occupied cell
-        /// pushes its icon on in turn, so a dense column ripples by one cell instead of
-        /// icons leaping to whatever free cell happens to be nearest. Icons already
-        /// parked stay where they are unless their parking spot is now under the tile.</summary>
-        public static void MakeSpace(DragDisplacement state, Rect footprintPx)
+        /// <summary>Push the icons under <paramref name="tileRectPx"/> out of the way the
+        /// way the Windows desktop does when something is dropped into a column: every
+        /// column the tile covers gets its occupied rows (from the tile's bottom edge
+        /// down) shifted down to just past the tile, in original top-to-bottom order.
+        /// Whatever doesn't fit below the tile in that column carries over — landing
+        /// first — at the top of the next column to the right, which then shifts its own
+        /// icons down in turn; a tile spanning several columns cascades through all of
+        /// them left to right. Icons above the tile, and every column to its left, never
+        /// move. "Under" and "blocked" are judged against the tile's actual rectangle and
+        /// each icon's visible area (image + label inside the cell), so nothing is ever
+        /// placed into a cell the tile covers, even while it hovers off-grid. Icons
+        /// already parked stay put unless the tile now covers them.</summary>
+        public static void MakeSpace(DragDisplacement state, Rect tileRectPx)
         {
             if (!state.Captured) BeginDrag(state);
             if (!state.Captured) return;
@@ -369,148 +380,209 @@ namespace DesktopBuckets.Interop
             {
                 if ((NativeMethods.GetWindowLong(lv, NativeMethods.GWL_STYLE) & NativeMethods.LVS_AUTOARRANGE) != 0)
                     return;
-                if (!NativeMethods.GetClientRect(lv, out var cr)) return;
 
                 var grid = state.Grid;
+                if (state.HomePx.Count == 0) return;
 
-                // Cells under the tile. The footprint is inset a little so a tile flush
-                // against a cell line doesn't reserve the neighbouring cell too.
-                var fpInset = Inset(footprintPx, 4);
-                var reserved = new HashSet<(int, int)>();
-                var tl = grid.CellOf(new Point(footprintPx.Left, footprintPx.Top));
-                var br = grid.CellOf(new Point(footprintPx.Right, footprintPx.Bottom));
+                // How far the icon image sits inside its cell (24,2 px on a default
+                // desktop): the median offset of the icons from their cell corners.
+                var pad = IconPadding(grid, state);
+                var iconSize = new Size(Math.Max(8, grid.CellPx.Width - 2 * pad.X),
+                                        Math.Max(8, grid.CellPx.Height - 2 * pad.Y));
+                Rect VisualOf((int col, int row) cell)
+                {
+                    var tl = grid.CellTopLeft(cell.col, cell.row);
+                    return new Rect(tl.X + pad.X, tl.Y + pad.Y, iconSize.Width, iconSize.Height);
+                }
+                // Grown by 1px so a cell exactly edge-adjacent to the tile still counts
+                // as blocked rather than slipping through on float rounding.
+                bool Blocked((int col, int row) cell) => Inset(VisualOf(cell), -1).IntersectsWith(tileRectPx);
 
-                // Icons stay on the tile's monitor: flow wraps within its work area.
-                var bounds = grid.MonitorRect(tl.col);
+                var tlCell = grid.CellOf(new Point(tileRectPx.Left + 1, tileRectPx.Top + 1));
+                var bounds = grid.MonitorRect(tlCell.col);
+                int monitor = IconGrid.MonitorOfCol(tlCell.col);
                 int maxCol = Math.Max(0, (int)Math.Floor(bounds.Width / grid.CellPx.Width) - 1);
                 int maxRow = Math.Max(0, (int)Math.Floor(bounds.Height / grid.CellPx.Height) - 1);
-                for (int c = tl.col - 1; c <= br.col + 1; c++)
-                for (int r = tl.row - 1; r <= br.row + 1; r++)
-                    if (grid.CellRect(c, r).IntersectsWith(fpInset)) reserved.Add((c, r));
-                if (reserved.Count == 0 || reserved.Count > 40) return;
 
-                // Where every icon is right now: parked ones at their parking cell, the
-                // rest at home. An icon counts as "under the tile" if its actual rect
-                // overlaps the footprint, not merely if its rounded cell matches, so a
-                // slightly off-grid icon is never left sitting under the tile.
-                var occupied = new Dictionary<(int, int), int>();
-                var current = new Dictionary<int, (int col, int row)>();
-                var toMove = new List<int>();
+                // Every cell this tile covers on its monitor — scanned in full so a wide
+                // or oddly-placed tile is never under-detected.
+                int tileLeft = int.MaxValue, tileRight = int.MinValue, tileTop = int.MaxValue, tileBottom = int.MinValue;
+                for (int c = 0; c <= maxCol; c++)
+                for (int r = 0; r <= maxRow; r++)
+                    if (Blocked((IconGrid.Encode(monitor, c), r)))
+                    {
+                        tileLeft = Math.Min(tileLeft, c); tileRight = Math.Max(tileRight, c);
+                        tileTop = Math.Min(tileTop, r); tileBottom = Math.Max(tileBottom, r);
+                    }
+                if (tileLeft == int.MaxValue) return; // the tile isn't over this monitor's grid at all
+
+                // Where every icon is right now (parked icons at their parking cell, the
+                // rest at home) — this map is read-only for the rest of the method, so
+                // "before" and "after" positions never get confused mid-computation.
+                var before = new Dictionary<int, (int col, int row)>();
+                var localCells = new Dictionary<int, (int col, int row)>(); // idx -> LOCAL (monitor-relative) cell, this monitor only
                 foreach (var kv in state.HomePx)
                 {
                     int idx = kv.Key;
-                    (int col, int row) cell;
-                    Point px;
-                    if (state.Parked.TryGetValue(idx, out var p))
-                    {
-                        cell = p.Cell;
-                        px = grid.CellTopLeft(cell.col, cell.row);
-                    }
-                    else
-                    {
-                        cell = grid.CellOf(kv.Value);
-                        px = kv.Value;
-                    }
-                    current[idx] = cell;
-                    var rect = new Rect(px.X, px.Y, grid.CellPx.Width, grid.CellPx.Height);
-                    if (reserved.Contains(cell) || Inset(rect, 6).IntersectsWith(fpInset))
-                        toMove.Add(idx);
-                    else
-                        occupied[cell] = idx;
+                    var cell = state.Parked.TryGetValue(idx, out var p) ? p.Cell : grid.CellOf(kv.Value);
+                    before[idx] = cell;
+                    if (IconGrid.MonitorOfCol(cell.col) != monitor) continue;   // a different monitor: never touched
+                    localCells[idx] = (IconGrid.LocalCol(cell.col), cell.row);
                 }
-                if (toMove.Count == 0) return;
 
-                // Column-major, top-left first, so the ripple is predictable.
-                toMove.Sort((a, b) => current[a].col != current[b].col
-                    ? current[a].col.CompareTo(current[b].col)
-                    : current[a].row.CompareTo(current[b].row));
-
-                // Each displaced icon is nudged one cell in the direction whose chain
-                // reaches a free cell soonest; the icons in that chain each shift by one
-                // cell too (a phone-style ripple, but only as long as it has to be).
-                // (idx, to, stagger) — stagger grows along a chain so it reads as a ripple.
+                var placements = ComputeColumnPush(localCells, tileLeft, tileRight, tileTop, tileBottom, maxCol, maxRow);
                 var moves = new List<(int idx, (int col, int row) to, int stagger)>();
-                var movedThisCall = new HashSet<int>();
-                foreach (var idx in toMove)
+                foreach (var pl in placements)
                 {
-                    if (movedThisCall.Contains(idx)) continue;
-                    var from = current[idx];
-                    var chain = ShortestNudge(grid, from, reserved, occupied, bounds, maxCol, maxRow);
-                    if (chain == null)
+                    var to = (IconGrid.Encode(monitor, pl.to.col), pl.to.row);
+                    if (before[pl.idx] != to) moves.Add((pl.idx, to, pl.stage));
+                }
+
+                // Whatever ComputeColumnPush couldn't fit anywhere on the grid (monitor
+                // packed solid): place at the nearest free cell that isn't under the tile.
+                // Should be exceedingly rare.
+                if (placements.Overflow.Count > 0)
+                {
+                    var occSet = OccupiedAfterMoves(before, moves);
+                    int stage = placements.NextStage;
+                    foreach (var idx in placements.Overflow)
                     {
-                        // Boxed in on every side: nearest free cell instead.
-                        var occSet = new HashSet<(int, int)>(occupied.Keys);
-                        if (FindFreeCell(grid, from, reserved, occSet, bounds, fpInset) is not { } near) continue;
-                        moves.Add((idx, near, 0));
-                        occupied[near] = idx;
-                        movedThisCall.Add(idx);
-                        continue;
-                    }
-                    var (dir, path) = chain.Value;
-                    // path = icons along the way (nearest first); the last one lands in the free cell
-                    foreach (var (who, at) in path) occupied.Remove(at);
-                    moves.Add((idx, (from.col + dir.dc, from.row + dir.dr), 0));
-                    occupied[(from.col + dir.dc, from.row + dir.dr)] = idx;
-                    movedThisCall.Add(idx);
-                    for (int k = 0; k < path.Count; k++)
-                    {
-                        var (who, at) = path[k];
-                        var to = (at.col + dir.dc, at.row + dir.dr);
-                        moves.Add((who, to, k + 1));
-                        occupied[to] = who;
-                        movedThisCall.Add(who);
+                        if (FindFreeCell(grid, before[idx], new HashSet<(int, int)>(), occSet, bounds, tileRectPx) is not { } near)
+                        {
+                            Services.Log.Error($"make space: no room left on the monitor for icon {idx}; leaving it under the tile.");
+                            continue;
+                        }
+                        moves.Add((idx, near, stage));
+                        occSet.Add(near);
                     }
                 }
 
-                foreach (var (idx, to, stagger) in moves)
+                if (moves.Count == 0) return;
+
+                foreach (var (idx, to, s) in moves)
                 {
-                    var homePx = state.Parked.TryGetValue(idx, out var pk) ? pk.Home : state.HomePx[idx];
-                    var fromPx = state.Parked.ContainsKey(idx)
-                        ? grid.CellTopLeft(current[idx].col, current[idx].row)
-                        : state.HomePx[idx];
-                    IconAnimator.Move(lv, idx, fromPx, grid.CellTopLeft(to.col, to.row),
-                        delayMs: Math.Min(stagger * 35, 240));
-                    state.Parked[idx] = (homePx, to);
-                    current[idx] = to;
+                    if (Blocked(to)) // should be unreachable; guards against a future regression silently landing icons under the tile
+                        Services.Log.Error($"make space: computed landing cell {to} for icon {idx} is under the tile — skipping the move.");
+                    else
+                    {
+                        var homePx = state.Parked.TryGetValue(idx, out var pk) ? pk.Home : state.HomePx[idx];
+                        var fromPx = state.Parked.ContainsKey(idx)
+                            ? grid.CellTopLeft(before[idx].col, before[idx].row)
+                            : state.HomePx[idx];
+                        var toPx = grid.CellTopLeft(to.col, to.row);
+                        IconAnimator.Move(lv, idx, fromPx, new Point(toPx.X + pad.X, toPx.Y + pad.Y),
+                            delayMs: Math.Min(s * 45, 260));
+                        state.Parked[idx] = (homePx, to);
+                    }
                 }
-                Services.Log.Info($"make space: reserved={reserved.Count} under={toMove.Count} moved={moves.Count} parked={state.Parked.Count}");
+                Services.Log.Info($"make space: cols {tileLeft}-{tileRight} rows {tileTop}-{tileBottom} moved={moves.Count} parked={state.Parked.Count}");
             });
         }
 
-        private const int MaxNudgeChain = 8;
-
-        /// <summary>For an icon at <paramref name="from"/>: the direction (down, right, up,
-        /// left) whose straight-line chain of occupied cells reaches a free cell on this
-        /// monitor with the fewest icons in between, and those icons in order. A chain
-        /// can't pass through the tile or off the monitor. Null when every direction is
-        /// blocked or longer than <see cref="MaxNudgeChain"/>.</summary>
-        private static ((int dc, int dr) dir, List<(int who, (int col, int row) at)> path)? ShortestNudge(
-            IconGrid g, (int col, int row) from,
-            HashSet<(int, int)> reserved, Dictionary<(int, int), int> occupied,
-            Rect bounds, int maxCol, int maxRow)
+        internal readonly struct ColumnPushResult
         {
-            ((int dc, int dr) dir, List<(int, (int, int))> path)? best = null;
-            foreach (var dir in new[] { (dc: 0, dr: 1), (dc: 1, dr: 0), (dc: 0, dr: -1), (dc: -1, dr: 0) })
+            public readonly List<(int idx, (int col, int row) to, int stage)> Placements;
+            /// <summary>Icons that had nowhere to go on this monitor (packed solid).</summary>
+            public readonly List<int> Overflow;
+            public readonly int NextStage;
+            public ColumnPushResult(List<(int, (int, int), int)> p, List<int> o, int s) { Placements = p; Overflow = o; NextStage = s; }
+            public List<(int idx, (int col, int row) to, int stage)>.Enumerator GetEnumerator() => Placements.GetEnumerator();
+        }
+
+        /// <summary>The column-batch push, in isolation from every OS call: given where
+        /// icons sit (local, monitor-relative cells) and the tile's blocked column/row
+        /// range, decide where each displaced icon goes. Every column the tile covers
+        /// gets its occupied rows from the tile's bottom edge down shifted to just past
+        /// it, in original top-to-bottom order; whatever doesn't fit carries to the top
+        /// of the next column, which shifts its own icons down in turn — the same
+        /// down-then-cascade-right the Windows desktop uses, generalised to a tile that
+        /// spans more than one column. Icons above the tile, and every column to its
+        /// left, are never included in <paramref name="iconCells"/> in the first place
+        /// (the caller filters that) and so never move.
+        ///
+        /// Pure and side-effect-free — no WithListView, no live desktop — so it can be
+        /// exercised directly by tests with a synthetic layout.</summary>
+        internal static ColumnPushResult ComputeColumnPush(
+            IReadOnlyDictionary<int, (int col, int row)> iconCells,
+            int tileLeft, int tileRight, int tileTop, int tileBottom,
+            int maxCol, int maxRow)
+        {
+            var byColumn = new Dictionary<int, List<(int row, int idx)>>();
+            foreach (var kv in iconCells)
             {
-                var path = new List<(int, (int, int))>();
-                var cur = from;
-                bool valid = false;
-                for (int step = 0; step <= MaxNudgeChain; step++)
-                {
-                    cur = (cur.col + dir.dc, cur.row + dir.dr);
-                    int lc = IconGrid.LocalCol(cur.col);
-                    if (lc < 0 || lc > maxCol || cur.row < 0 || cur.row > maxRow) break;   // off the monitor
-                    if (reserved.Contains(cur)) break;                                     // can't push through the tile
-                    if (occupied.TryGetValue(cur, out int who)) { path.Add((who, cur)); continue; }
-                    valid = true;                                                          // free cell: chain ends here
-                    break;
-                }
-                if (!valid) continue;
-                if (best == null || path.Count < best.Value.path.Count)
-                    best = (dir, path);
-                if (path.Count == 0) break;   // can't beat a direct hop
+                int lc = kv.Value.col;
+                if (lc < tileLeft) continue; // left of the tile: never touched
+                if (!byColumn.TryGetValue(lc, out var list)) byColumn[lc] = list = new List<(int, int)>();
+                list.Add((kv.Value.row, kv.Key));
             }
-            return best;
+            foreach (var list in byColumn.Values) list.Sort((a, b) => a.row.CompareTo(b.row));
+
+            var carry = new List<int>();
+            var moves = new List<(int idx, (int col, int row) to, int stage)>();
+            int stage = 0;
+            for (int lc = tileLeft; lc <= maxCol; lc++)
+            {
+                bool isTileCol = lc >= tileLeft && lc <= tileRight;
+
+                var inSeq = new List<int>(carry);
+                if (byColumn.TryGetValue(lc, out var here))
+                    foreach (var (origRow, idx) in here)
+                    {
+                        if (isTileCol && origRow < tileTop) continue; // above the tile in its own column: untouched
+                        inSeq.Add(idx);
+                    }
+                if (inSeq.Count == 0) continue; // nothing here and nothing carried in: leave this column alone
+
+                int placeRow = isTileCol ? tileBottom + 1 : 0;
+                carry = new List<int>();
+                foreach (var idx in inSeq)
+                {
+                    if (placeRow > maxRow) { carry.Add(idx); continue; }
+                    moves.Add((idx, (lc, placeRow), stage));
+                    placeRow++;
+                }
+                stage++;
+                if (carry.Count == 0 && lc >= tileRight) break; // fully absorbed; nothing further needs to move
+            }
+
+            return new ColumnPushResult(moves, carry, stage);
+        }
+
+        /// <summary>The true occupied-cell set after applying <paramref name="moves"/> on
+        /// top of <paramref name="before"/>: every icon that didn't move keeps its cell,
+        /// every icon that did move counts at its destination. Deliberately NOT computed
+        /// as "start from every before-cell, then Remove(before[idx])/Add(to) per move" —
+        /// when icon A's destination is icon B's ORIGINAL cell, and B is processed after
+        /// A, that Remove(before[B]) wrongly vacates the cell A just moved into, letting
+        /// a later placement collide with A. Pure, so it's directly unit-testable.</summary>
+        internal static HashSet<(int col, int row)> OccupiedAfterMoves(
+            IReadOnlyDictionary<int, (int col, int row)> before,
+            IReadOnlyList<(int idx, (int col, int row) to, int stage)> moves)
+        {
+            var movedIdx = new HashSet<int>();
+            foreach (var m in moves) movedIdx.Add(m.idx);
+
+            var occ = new HashSet<(int, int)>();
+            foreach (var kv in before)
+                if (!movedIdx.Contains(kv.Key)) occ.Add(kv.Value);
+            foreach (var m in moves) occ.Add(m.to);
+            return occ;
+        }
+
+        /// <summary>Median offset of the icons from their cell corners: where the icon
+        /// image sits inside its cell.</summary>
+        private static Point IconPadding(IconGrid grid, DragDisplacement state)
+        {
+            var xs = new List<double>();
+            var ys = new List<double>();
+            foreach (var kv in state.HomePx)
+            {
+                var ph = grid.PhaseOf(kv.Value);
+                xs.Add(ph.X); ys.Add(ph.Y);
+            }
+            if (xs.Count == 0) return new Point(0, 0);
+            xs.Sort(); ys.Sort();
+            return new Point(xs[xs.Count / 2], ys[ys.Count / 2]);
         }
 
         /// <summary>Slide every displaced icon home (tile moved on, dropped elsewhere,
@@ -520,11 +592,13 @@ namespace DesktopBuckets.Interop
             if (!state.Any) return;
             WithListView((lv, proc, remote) =>
             {
+                var pad = IconPadding(state.Grid, state); // parked icons sit at cell corner + padding
                 int order = 0;
                 foreach (var kv in state.Parked)
                 {
                     var (home, cell) = kv.Value;
-                    IconAnimator.Move(lv, kv.Key, state.Grid.CellTopLeft(cell.col, cell.row), home,
+                    var at = state.Grid.CellTopLeft(cell.col, cell.row);
+                    IconAnimator.Move(lv, kv.Key, new Point(at.X + pad.X, at.Y + pad.Y), home,
                         delayMs: Math.Min(order++ * 20, 160));
                 }
                 state.Parked.Clear();

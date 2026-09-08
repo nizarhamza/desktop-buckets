@@ -75,7 +75,7 @@ namespace DesktopBuckets.Views
             _dwellTimer.Tick += (_, _) =>
             {
                 _dwellTimer.Stop();
-                if (_dragging) MakeSpaceUnderTile();
+                if (_dragging) MakeSpaceUnderTile(snapped: false);
             };
 
             SourceInitialized += OnSourceInitialized;
@@ -152,14 +152,25 @@ namespace DesktopBuckets.Views
             }
         }
 
-        /// <summary>The tile window's rect in listview-client px (Rect.Empty on failure).</summary>
+        /// <summary>The tile window's rect in listview-client px (Rect.Empty on failure).
+        /// Position comes from the managed <see cref="Left"/>/<see cref="Top"/>, size from
+        /// <see cref="_blockW"/>/<see cref="_blockH"/> (set synchronously by
+        /// <see cref="SizeToWholeCells"/>) — deliberately NOT a native <c>GetWindowRect</c>
+        /// query, and deliberately not <c>ActualWidth</c>/<c>ActualHeight</c> either.
+        /// <c>GetWindowRect</c> reflects the real HWND, which WPF updates asynchronously
+        /// on the next layout pass after <c>Left</c>/<c>Top</c> change — under a fast
+        /// drag it can read one frame stale, which is what left a released tile unsnapped
+        /// (and icons still under it) after a rapid drag end. <c>ActualWidth</c> has the
+        /// same lag risk right after <see cref="SizeToWholeCells"/> sets <c>Width</c>,
+        /// before the next layout pass catches up — <c>_blockW</c> needs no layout pass,
+        /// it's set the instant the size decision is made.</summary>
         private Rect TileClientRectPx()
         {
-            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-            if (hwnd == IntPtr.Zero) return Rect.Empty;
-            if (!Interop.NativeMethods.GetWindowRect(hwnd, out var wr)) return Rect.Empty;
             if (!DesktopShell.TryGetListViewRect(out var lv)) return Rect.Empty;
-            return new Rect(wr.Left - lv.Left, wr.Top - lv.Top, wr.Right - wr.Left, wr.Bottom - wr.Top);
+            var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+            double screenLeftPx = Left * dpi.DpiScaleX;
+            double screenTopPx = Top * dpi.DpiScaleY;
+            return new Rect(screenLeftPx - lv.Left, screenTopPx - lv.Top, _blockW, _blockH);
         }
 
         /// <summary>The whole-cell footprint in client px, snapped to the grid (Rect.Empty
@@ -350,14 +361,16 @@ namespace DesktopBuckets.Views
             catch (Exception ex) { Log.Error("drag tracking failed", ex); }
         }
 
-        /// <summary>Push the desktop icons under the tile's (snapped) footprint aside.</summary>
-        private void MakeSpaceUnderTile()
+        /// <summary>Push the desktop icons under the tile aside. While hovering the tile's
+        /// ACTUAL rect is used (it may straddle cells), so nothing is pushed under it;
+        /// after a drop the window sits on the snapped block, so pass that.</summary>
+        private void MakeSpaceUnderTile(bool snapped)
         {
             if (!_dragGridValid) return;
             try
             {
-                var fp = SnappedBlockPx(_dragGrid);
-                if (!fp.IsEmpty) DesktopShell.MakeSpace(_displaced, fp);
+                var rect = snapped ? SnappedBlockPx(_dragGrid) : TileClientRectPx();
+                if (!rect.IsEmpty) DesktopShell.MakeSpace(_displaced, rect);
             }
             catch (Exception ex) { Log.Error("make space failed", ex); }
         }
@@ -390,7 +403,7 @@ namespace DesktopBuckets.Views
                 {
                     SnapInnerBlock(_dragGrid);
                     // Dropped: the tile stays here, so make room right away.
-                    MakeSpaceUnderTile();
+                    MakeSpaceUnderTile(snapped: true);
                 }
                 catch (Exception ex) { Log.Error("drop snap failed", ex); }
             }
@@ -412,7 +425,7 @@ namespace DesktopBuckets.Views
                 {
                     _dragGrid = DesktopShell.BeginDrag(_displaced);
                     _dragGridValid = _dragGrid.Valid;
-                    MakeSpaceUnderTile();
+                    MakeSpaceUnderTile(snapped: true);
                 }
             }
             catch (Exception ex) { Log.Error("Grid snap failed", ex); }
