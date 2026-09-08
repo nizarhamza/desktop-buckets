@@ -82,9 +82,12 @@ if its version number is lower, since nightly build numbers climb past stable ta
   visible on "Show desktop". Never steals focus.
 - **Drag & drop** from Explorer onto a tile **moves** the item into the bucket (hold
   **Ctrl** to copy instead).
-- **Desktop-aware** — tiles snap to the desktop icon grid when moved, and hide/show
-  together with the desktop's "Show desktop icons" toggle. A bucket is represented only
-  by its tile: its backing folder is never a second icon on the desktop.
+- **Desktop-aware** — a tile occupies whole desktop icon cells (the lattice Windows
+  itself snaps icons to, per monitor) and hides/shows together with the desktop's "Show
+  desktop icons" toggle. Icons under a tile are nudged one cell aside, phone-style,
+  along the shortest chain to a free cell — only once the tile has rested there for a
+  second, never while it is moving — and slide back when it leaves. A bucket is
+  represented only by its tile: its backing folder is never a second icon on the desktop.
 - **Per-file context menu:** Open · Pin/Unpin · Open file location · Copy path.
 - **Tile context menu:** Open folder · Rename · Icon-slot count (1–9) · Lock position ·
   New bucket · toggle the desktop right-click entry · Delete (to Recycle Bin).
@@ -102,7 +105,7 @@ if its version number is lower, since nightly build numbers climb past stable ta
 | Double-click the tile body / label | Opens the bucket folder in File Explorer |
 | Right-click a tile icon | Pin / Unpin / reveal / copy path |
 | Right-click the tile body | Rename, delete, slots, lock, shell toggle, new bucket |
-| Drag the tile body | Moves the tile; snaps to the desktop grid; position persisted |
+| Drag the tile body | Moves the tile; snaps to the desktop icon cells; position persisted. Icons under it are nudged aside only once the tile has rested there for a second (or is dropped) and slide back when it moves on |
 | Drop files on the tile | **Moves** them into the bucket (Ctrl = copy) |
 
 ---
