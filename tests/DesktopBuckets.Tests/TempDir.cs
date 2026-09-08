@@ -21,6 +21,14 @@ namespace DesktopBuckets.Tests
             return p;
         }
 
+        /// <summary>Creates a sub-folder directly under this temp dir and returns its path.</summary>
+        public string Dir(string name)
+        {
+            var p = System.IO.Path.Combine(Path, name);
+            Directory.CreateDirectory(p);
+            return p;
+        }
+
         public void Dispose()
         {
             try
@@ -30,6 +38,8 @@ namespace DesktopBuckets.Tests
                     // clear Hidden/ReadOnly so Delete(recursive) doesn't choke
                     foreach (var f in Directory.EnumerateFiles(Path, "*", SearchOption.AllDirectories))
                         System.IO.File.SetAttributes(f, FileAttributes.Normal);
+                    foreach (var d in Directory.EnumerateDirectories(Path, "*", SearchOption.AllDirectories))
+                        System.IO.File.SetAttributes(d, FileAttributes.Directory);
                     Directory.Delete(Path, recursive: true);
                 }
             }

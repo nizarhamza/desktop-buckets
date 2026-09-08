@@ -48,6 +48,35 @@ namespace DesktopBuckets.Tests
         }
 
         [Fact]
+        public void AFolderOfOnlySubfoldersRendersItemsNotTheEmptyPlaceholder()
+        {
+            using var tmp = new TempDir();
+            tmp.Dir("TTE-Saddade");
+            tmp.Dir("tech specifications");
+
+            var vm = new BucketTileViewModel(Bucket.LoadOrCreate(tmp.Path));
+
+            Assert.False(vm.IsEmpty);
+            Assert.Equal(2, vm.Slots.Count);
+            Assert.All(vm.Slots, s => Assert.True(s.IsDirectory));
+        }
+
+        [Fact]
+        public void RefreshPicksUpAnAddedSubfolder()
+        {
+            using var tmp = new TempDir();
+            tmp.File("a.txt");
+            var vm = new BucketTileViewModel(Bucket.LoadOrCreate(tmp.Path));
+            Assert.Single(vm.Slots);
+
+            tmp.Dir("New Folder");
+            vm.Refresh();
+
+            Assert.Equal(2, vm.Slots.Count);
+            Assert.Contains(vm.Slots, s => s.Name == "New Folder" && s.IsDirectory);
+        }
+
+        [Fact]
         public void RefreshShrinksAndGrowsWithTheFolder()
         {
             using var tmp = new TempDir();

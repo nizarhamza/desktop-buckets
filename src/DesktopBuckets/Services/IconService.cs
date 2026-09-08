@@ -24,20 +24,26 @@ namespace DesktopBuckets.Services
         private static readonly string[] PerPathExtensions =
             { ".exe", ".lnk", ".ico", ".msi", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp" };
 
-        public ImageSource? GetLargeIcon(string path)
+        public ImageSource? GetLargeIcon(string path, bool isDirectory = false)
         {
-            var key = CacheKey(path);
+            var key = CacheKey(path, isDirectory);
             if (_cache.TryGetValue(key, out var cached))
                 return cached;
 
-            var image = Extract(path);
+            var image = Extract(path, isDirectory);
             if (image != null)
                 _cache[key] = image;
             return image;
         }
 
-        private static string CacheKey(string path)
+        private static string CacheKey(string path, bool isDirectory)
         {
+            // Per-path for folders too: most share the generic shell folder icon, but one
+            // with a custom desktop.ini icon should keep it — the cache stays tiny either
+            // way (a bucket holds a handful of sub-folders).
+            if (isDirectory)
+                return "dir::" + path.ToLowerInvariant();
+
             var ext = Path.GetExtension(path);
             foreach (var e in PerPathExtensions)
                 if (string.Equals(ext, e, StringComparison.OrdinalIgnoreCase))
@@ -45,20 +51,23 @@ namespace DesktopBuckets.Services
             return "ext::" + ext.ToLowerInvariant();
         }
 
-        private static ImageSource? Extract(string path)
+        private static ImageSource? Extract(string path, bool isDirectory)
         {
             try { path = System.IO.Path.GetFullPath(path); } catch { /* use as-is */ }
 
             var shinfo = new NativeMethods.SHFILEINFO();
             uint flags = NativeMethods.SHGFI_ICON | NativeMethods.SHGFI_LARGEICON;
 
-            bool exists = File.Exists(path);
+            bool exists = isDirectory ? Directory.Exists(path) : File.Exists(path);
+            uint fallbackAttrs = isDirectory
+                ? NativeMethods.FILE_ATTRIBUTE_DIRECTORY
+                : NativeMethods.FILE_ATTRIBUTE_NORMAL;
             if (!exists)
                 flags |= NativeMethods.SHGFI_USEFILEATTRIBUTES;
 
             _ = NativeMethods.SHGetFileInfo(
                 path,
-                exists ? 0 : NativeMethods.FILE_ATTRIBUTE_NORMAL,
+                exists ? 0 : fallbackAttrs,
                 ref shinfo,
                 (uint)System.Runtime.InteropServices.Marshal.SizeOf(shinfo),
                 flags);

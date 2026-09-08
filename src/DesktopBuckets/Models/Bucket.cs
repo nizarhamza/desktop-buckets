@@ -76,8 +76,11 @@ namespace DesktopBuckets.Models
             JsonUtil.WriteHidden(ConfigPath, Config);
         }
 
-        /// <summary>All files sitting directly in the bucket folder (non-recursive),
-        /// excluding the config file and OS junk. Never throws for a missing folder.</summary>
+        /// <summary>Everything sitting directly in the bucket folder (non-recursive) —
+        /// files and sub-folders alike — excluding the config file and OS junk. A bucket
+        /// pointed at a folder that holds only sub-folders (a project tree, say) would
+        /// otherwise render as permanently "empty". Never throws for a missing folder.
+        /// Name kept for its many call sites; it enumerates entries, not just files.</summary>
         public IReadOnlyList<BucketFile> EnumerateFiles()
         {
             if (!Directory.Exists(FolderPath))
@@ -86,23 +89,25 @@ namespace DesktopBuckets.Models
             var result = new List<BucketFile>();
             try
             {
-                // FileInfo objects from the directory scan already carry attributes and
-                // timestamps — one syscall per directory instead of three per file.
-                foreach (var fi in new DirectoryInfo(FolderPath).EnumerateFiles("*", SearchOption.TopDirectoryOnly))
+                // FileSystemInfo objects from the directory scan already carry attributes
+                // and timestamps — one syscall per directory instead of three per entry.
+                foreach (var info in new DirectoryInfo(FolderPath).EnumerateFileSystemInfos("*", SearchOption.TopDirectoryOnly))
                 {
-                    var name = fi.Name;
-                    if (name.StartsWith('.')) continue;                                   // .bucket.json, dotfiles
+                    var name = info.Name;
+                    if (name.StartsWith('.')) continue;                                   // .bucket.json, dotfiles, .git
                     if (name.EndsWith(".bak", StringComparison.OrdinalIgnoreCase)) continue;
                     if (name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)) continue;
                     if (name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase)) continue;
                     if (name.Equals("Thumbs.db", StringComparison.OrdinalIgnoreCase)) continue;
 
+                    bool isDirectory = info is DirectoryInfo;
+
                     FileAttributes attr;
                     DateTime lastWrite;
                     try
                     {
-                        attr = fi.Attributes;
-                        lastWrite = fi.LastWriteTimeUtc;
+                        attr = info.Attributes;
+                        lastWrite = info.LastWriteTimeUtc;
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
@@ -111,14 +116,15 @@ namespace DesktopBuckets.Models
                     }
                     if (attr.HasFlag(FileAttributes.Hidden) || attr.HasFlag(FileAttributes.System)) continue;
 
-                    var rel = name; // files are direct children, so relative path == name
+                    var rel = name; // entries are direct children, so relative path == name
                     Config.LastOpenedUtc.TryGetValue(rel, out var opened);
 
                     result.Add(new BucketFile
                     {
-                        FullPath = fi.FullName,
+                        FullPath = info.FullName,
                         RelativePath = rel,
                         Name = name,
+                        IsDirectory = isDirectory,
                         LastWriteUtc = lastWrite,
                         LastOpenedViaTileUtc = opened,
                         IsPinned = Config.Pinned.Contains(rel, StringComparer.OrdinalIgnoreCase),
@@ -181,7 +187,11 @@ namespace DesktopBuckets.Models
         /// so a transiently offline path gets one chance to come back per session.</summary>
         public void PrunePinned()
         {
-            Config.Pinned.RemoveAll(rel => !File.Exists(Path.Combine(FolderPath, rel)));
+            Config.Pinned.RemoveAll(rel =>
+            {
+                var p = Path.Combine(FolderPath, rel);
+                return !File.Exists(p) && !Directory.Exists(p); // a pinned sub-folder counts as live
+            });
 
             var liveKeys = new HashSet<string>(
                 EnumerateFiles().Select(f => f.RelativePath), StringComparer.OrdinalIgnoreCase);

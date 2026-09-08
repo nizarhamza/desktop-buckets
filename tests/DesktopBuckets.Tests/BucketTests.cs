@@ -100,6 +100,20 @@ namespace DesktopBuckets.Tests
             Assert.Equal(new[] { "keep.txt" }, b.Config.LastOpenedUtc.Keys);
         }
 
+        [Fact]
+        public void PrunePinnedKeepsPinnedSubfolders()
+        {
+            using var tmp = new TempDir();
+            tmp.Dir("Reports");
+            var b = Bucket.LoadOrCreate(tmp.Path);
+            b.Pin("Reports");     // a folder, not a file
+            b.Pin("Gone");        // neither file nor folder
+
+            b.PrunePinned();
+
+            Assert.Equal(new[] { "Reports" }, b.Config.Pinned);
+        }
+
         // ---- enumeration -----------------------------------------------
 
         [Fact]
@@ -113,12 +127,61 @@ namespace DesktopBuckets.Tests
             tmp.File("desktop.ini");
             var hidden = tmp.File("hidden.txt");
             File.SetAttributes(hidden, FileAttributes.Hidden);
-            Directory.CreateDirectory(Path.Combine(tmp.Path, "subdir"));
 
             var b = Bucket.LoadOrCreate(tmp.Path); // writes .bucket.json
             var names = b.EnumerateFiles().Select(f => f.Name).ToArray();
 
             Assert.Equal(new[] { "doc.txt" }, names);
+        }
+
+        // ---- sub-folders show up as entries too -----------------------
+        // A bucket pointed at a folder that holds only sub-folders (e.g. a project tree)
+        // used to render as permanently "empty" because enumeration was files-only.
+
+        [Fact]
+        public void EnumerateFilesIncludesSubfoldersFlaggedAsDirectories()
+        {
+            using var tmp = new TempDir();
+            tmp.File("notes.txt");
+            tmp.Dir("Reports");
+            tmp.Dir("Drawings");
+
+            var b = Bucket.LoadOrCreate(tmp.Path);
+            var entries = b.EnumerateFiles();
+
+            Assert.Equal(
+                new[] { "Drawings", "notes.txt", "Reports" },
+                entries.Select(e => e.Name).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToArray());
+            Assert.True(entries.Single(e => e.Name == "Reports").IsDirectory);
+            Assert.True(entries.Single(e => e.Name == "Drawings").IsDirectory);
+            Assert.False(entries.Single(e => e.Name == "notes.txt").IsDirectory);
+        }
+
+        [Fact]
+        public void EnumerateFilesOnAFolderOfOnlyFoldersIsNotEmpty()
+        {
+            using var tmp = new TempDir();
+            tmp.Dir("sub-a");
+            tmp.Dir("sub-b");
+
+            var b = Bucket.LoadOrCreate(tmp.Path);
+
+            Assert.Equal(2, b.EnumerateFiles().Count);
+        }
+
+        [Fact]
+        public void EnumerateFilesSkipsDotfoldersAndHiddenOrSystemFolders()
+        {
+            using var tmp = new TempDir();
+            tmp.Dir("keep");
+            tmp.Dir(".git");
+            var hidden = tmp.Dir("hiddendir");
+            File.SetAttributes(hidden, File.GetAttributes(hidden) | FileAttributes.Hidden);
+
+            var b = Bucket.LoadOrCreate(tmp.Path);
+            var names = b.EnumerateFiles().Select(e => e.Name).ToArray();
+
+            Assert.Equal(new[] { "keep" }, names);
         }
 
         [Fact]

@@ -93,7 +93,7 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <TextBlock Text="Empty &#8212; drop files here"
+                <TextBlock Text="Empty &#8212; drop files or folders here"
                            Foreground="#80FFFFFF"
                            FontSize="11"
                            Margin="18"

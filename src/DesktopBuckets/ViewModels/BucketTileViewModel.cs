@@ -107,13 +107,16 @@ namespace DesktopBuckets.ViewModels
         /// when nothing happened (file gone, no handler, locked), or null on success.</summary>
         public string? OpenFile(BucketFileViewModel vm)
         {
-            if (!File.Exists(vm.FullPath))
+            bool exists = vm.IsDirectory ? Directory.Exists(vm.FullPath) : File.Exists(vm.FullPath);
+            if (!exists)
             {
                 Refresh();
                 return $"{vm.Name} is no longer in the bucket.";
             }
             try
             {
+                // UseShellExecute opens a folder in Explorer just as it launches a file
+                // with its default handler.
                 Process.Start(new ProcessStartInfo(vm.FullPath) { UseShellExecute = true });
                 Bucket.RecordOpened(vm.RelativePath);
                 Refresh();
@@ -152,8 +155,10 @@ namespace DesktopBuckets.ViewModels
         {
             try
             {
-                if (File.Exists(vm.FullPath))
+                bool exists = vm.IsDirectory ? Directory.Exists(vm.FullPath) : File.Exists(vm.FullPath);
+                if (exists)
                 {
+                    // /select works for a folder too: opens its parent with it highlighted.
                     Process.Start("explorer.exe", $"/select,\"{vm.FullPath}\"");
                     return null;
                 }

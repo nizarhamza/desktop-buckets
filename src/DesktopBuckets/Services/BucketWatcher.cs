@@ -6,7 +6,8 @@ namespace DesktopBuckets.Services
 {
     /// <summary>
     /// Watches a bucket folder (non-recursive) and raises <see cref="Changed"/> on the
-    /// UI thread, debounced, whenever files appear / disappear / are renamed / rewritten.
+    /// UI thread, debounced, whenever files or sub-folders appear / disappear / are
+    /// renamed / rewritten.
     /// </summary>
     public sealed class BucketWatcher : IDisposable
     {
@@ -31,8 +32,9 @@ namespace DesktopBuckets.Services
             _fsw = new FileSystemWatcher(folderPath)
             {
                 IncludeSubdirectories = false,
-                NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite |
-                               NotifyFilters.Size | NotifyFilters.CreationTime,
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName |
+                               NotifyFilters.LastWrite | NotifyFilters.Size |
+                               NotifyFilters.CreationTime,
             };
             _fsw.Created += OnAny;
             _fsw.Deleted += OnAny;
