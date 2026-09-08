@@ -399,6 +399,27 @@ namespace DesktopBuckets.Views
         {
             if (!_dragging) return;
 
+            // Ground truth for whether the button is actually still down, independent of
+            // capture. This window is WS_EX_NOACTIVATE + non-focusable, and a missed
+            // MouseLeftButtonUp/LostMouseCapture (observed live: capture taken but the
+            // matching up-event never routes back, most likely raced against the
+            // periodic SendToBottom Z-order change) otherwise strands _dragging=true
+            // forever. Once stranded, EVERY later mouse move anywhere on the desktop —
+            // not just over this tile — gets misread as this tile still being dragged:
+            // it teleports to wherever the real cursor currently is and repeatedly
+            // triggers MakeSpace on whatever cell it passes over, invisibly, in the
+            // background. That's the "icons move arbitrarily" / "unsmooth movement"
+            // symptom reported earlier, and the log's continuous "make space" churn
+            // tracking ordinary mouse activity instead of an actual tile drag. Self-heal
+            // on the very next move event we do see, rather than trusting our own flag.
+            if (e.LeftButton != MouseButtonState.Pressed)
+            {
+                _dragging = false;
+                ReleaseMouseCapture();
+                FinishDrag();
+                return;
+            }
+
             Interop.NativeMethods.GetCursorPos(out var cur);
             Left = _dragWinStart.X + (cur.X - _dragMouseStartPx.X) / _dpiX;
             Top = _dragWinStart.Y + (cur.Y - _dragMouseStartPx.Y) / _dpiY;
