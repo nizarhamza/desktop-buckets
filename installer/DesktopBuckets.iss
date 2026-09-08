@@ -152,6 +152,20 @@ begin
   Log('App did not exit on request; forcing.');
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM {#MyAppExeName}',
        '', SW_HIDE, ewWaitUntilTerminated, rc);
+
+  // taskkill returns when termination is requested, not when the process is
+  // gone; the mutex lives until it is. Inno's AppMutex check follows right
+  // after this, so wait for the handle to actually disappear.
+  for i := 1 to 100 do
+  begin
+    if not AppIsRunning then
+    begin
+      Log('App terminated.');
+      exit;
+    end;
+    Sleep(100);
+  end;
+  Log('Mutex still present after forced kill.');
 end;
 
 // Inno's own AppMutex check runs BEFORE PrepareToInstall, and in silent mode its
