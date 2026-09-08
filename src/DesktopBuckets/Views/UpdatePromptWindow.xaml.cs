@@ -20,6 +20,17 @@ namespace DesktopBuckets.Views
             InitializeComponent();
 
             VersionText.Text = $"{UpdateService.FormatVersion(service.CurrentVersion)}  →  {info.DisplayVersion}";
+            if (info.IsDowngrade)
+            {
+                HeadlineText.Text = "Switch to this channel's build";
+                VersionText.Text += "  (older than the version you're running — this is a channel switch)";
+            }
+            if (!string.IsNullOrWhiteSpace(info.Repo) &&
+                !string.Equals(info.Repo, UpdateConfig.DefaultRepo, StringComparison.OrdinalIgnoreCase))
+            {
+                // Non-default source: make it visible rather than silently honouring update.json.
+                VersionText.Text += $"\nSource: github.com/{info.Repo}";
+            }
             NotesText.Text = string.IsNullOrWhiteSpace(info.Notes)
                 ? "No release notes were provided."
                 : info.Notes!.Trim();

@@ -41,12 +41,50 @@ namespace DesktopBuckets.Services
         /// <summary>Live settings. Mutate, then call <see cref="ApplySettings"/> to persist and re-arm.</summary>
         public UpdateConfig Config => _config;
 
+        /// <summary>SHA-1 thumbprint of the certificate every published installer is
+        /// signed with (packaging/DesktopBuckets.cer). A downloaded installer that is
+        /// unsigned, tampered with, or signed by anyone else is never launched. Rotate
+        /// this together with the certificate.</summary>
+        internal const string InstallerSignerThumbprint = "9220A7BFAAA4CA0D714913791D27D31709280CE5";
+
         public UpdateService(Dispatcher dispatcher, Version currentVersion)
         {
             _dispatcher = dispatcher;
             _current = currentVersion;
             _config = JsonUtil.Read<UpdateConfig>(ConfigPath) ?? new UpdateConfig();
             _state = JsonUtil.Read<UpdateState>(StatePath) ?? new UpdateState();
+
+            if (!_config.IsDefaultRepo)
+                Log.Error($"update.json points the updater at '{_config.Repo}' instead of '{UpdateConfig.DefaultRepo}'. " +
+                          "Installers from there must still carry the pinned signature, but check that this is intended.");
+
+            var channel = NormalizeChannel(_config.Channel);
+            if (_state.LastChannel == null)
+            {
+                _state.LastChannel = channel;
+            }
+            else if (!string.Equals(_state.LastChannel, channel, StringComparison.Ordinal))
+            {
+                // update.json was edited by hand between runs.
+                _state.LastChannel = channel;
+                _state.ChannelSwitchPending = true;
+            }
+        }
+
+        internal static string NormalizeChannel(string? channel) =>
+            string.Equals(channel?.Trim(), "stable", StringComparison.OrdinalIgnoreCase) ? "stable" : "nightly";
+
+        public enum Decision { UpToDate, Offer, OfferDowngrade }
+
+        /// <summary>What to do with the channel's latest build. Ordinarily only a newer
+        /// version is offered; after a channel switch the target channel's build is
+        /// offered whatever its number, because nightly build numbers (<c>0.1.&lt;run&gt;</c>)
+        /// climb past stable tags and would otherwise pin the user to nightly forever.</summary>
+        internal static Decision Decide(Version current, Version candidate, bool channelSwitchPending)
+        {
+            if (candidate == current) return Decision.UpToDate;
+            if (candidate > current) return Decision.Offer;
+            return channelSwitchPending ? Decision.OfferDowngrade : Decision.UpToDate;
         }
 
         public void Start()
@@ -84,8 +122,15 @@ namespace DesktopBuckets.Services
         /// Clears any "skip"/"remind me later" so a channel change can prompt again.</summary>
         public void ApplySettings()
         {
-            try { JsonUtil.Write(ConfigPath, _config); }
-            catch (Exception ex) { Log.Error("Saving update settings failed", ex); }
+            JsonUtil.Write(ConfigPath, _config);
+
+            var channel = NormalizeChannel(_config.Channel);
+            if (!string.Equals(_state.LastChannel, channel, StringComparison.Ordinal))
+            {
+                _state.LastChannel = channel;
+                _state.ChannelSwitchPending = true;
+                Log.Info($"Update channel switched to '{channel}'; its latest build will be offered regardless of version.");
+            }
 
             _promptedThisRun = false;
             _state.SkippedVersion = null;
@@ -112,13 +157,20 @@ namespace DesktopBuckets.Services
                     return;
                 }
 
-                if (info.Version <= _current)
+                var decision = Decide(_current, info.Version, _state.ChannelSwitchPending);
+                if (decision == Decision.UpToDate)
                 {
+                    if (_state.ChannelSwitchPending && info.Version == _current)
+                    {
+                        _state.ChannelSwitchPending = false; // already on the target channel's build
+                        SaveState();
+                    }
                     Log.Info($"Update check: current {_current} is up to date (channel latest {info.Version}).");
                     if (userInitiated)
                         Raise(UpToDateOrError, $"You're on the latest version ({FormatVersion(_current)}).");
                     return;
                 }
+                info.IsDowngrade = decision == Decision.OfferDowngrade;
 
                 if (!userInitiated)
                 {
@@ -172,7 +224,7 @@ namespace DesktopBuckets.Services
 
         private async Task<UpdateInfo?> FetchLatestAsync()
         {
-            var channel = (_config.Channel ?? "nightly").Trim().ToLowerInvariant();
+            var channel = NormalizeChannel(_config.Channel);
             var endpoint = channel == "stable"
                 ? $"https://api.github.com/repos/{_config.Repo}/releases/latest"
                 : $"https://api.github.com/repos/{_config.Repo}/releases/tags/nightly";
@@ -220,6 +272,7 @@ namespace DesktopBuckets.Services
                 DisplayVersion = FormatVersion(version),
                 TagName = string.IsNullOrEmpty(tag) ? name : tag,
                 Notes = notes,
+                Repo = _config.Repo,
                 AssetName = assetName,
                 AssetApiUrl = assetApi,
                 AssetBrowserUrl = assetBrowser,
@@ -241,10 +294,15 @@ namespace DesktopBuckets.Services
             var assetName = Path.GetFileName(info.AssetName ?? "");
             if (string.IsNullOrWhiteSpace(assetName) || !assetName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
                 assetName = $"DesktopBuckets-Setup-{info.DisplayVersion}.exe";
-            var target = Path.Combine(Path.GetTempPath(), assetName);
+
+            // A fresh, unpredictable directory: nothing else can pre-create or swap the
+            // file between the checks below and Process.Start.
+            var dir = Path.Combine(Path.GetTempPath(), "DesktopBuckets-update-" + Guid.NewGuid().ToString("N"));
+            var target = Path.Combine(dir, assetName);
 
             try
             {
+                Directory.CreateDirectory(dir);
                 using var http = CreateClient();
 
                 // Prefer the API asset URL (needed for private repos); it also works public.
@@ -278,12 +336,24 @@ namespace DesktopBuckets.Services
                 if (new FileInfo(target).Length < 1_000_000)
                     throw new IOException($"Downloaded installer is implausibly small ({new FileInfo(target).Length} bytes).");
 
-                Log.Info($"Downloaded {target}; launching silent installer and exiting.");
+                var problem = VerifyInstaller(target);
+                if (problem != null)
+                {
+                    Log.Error($"Refusing to run downloaded installer {target}: {problem}");
+                    Raise(UpToDateOrError, "The downloaded update failed its signature check and was not installed.");
+                    TryDeleteDir(dir);
+                    return false;
+                }
+
+                Log.Info($"Downloaded {target} (signature OK); launching silent installer and exiting.");
                 Process.Start(new ProcessStartInfo(target)
                 {
                     UseShellExecute = true,
                     Arguments = "/SILENT /SUPPRESSMSGBOXES /NORESTART",
                 });
+
+                _state.ChannelSwitchPending = false;
+                SaveState();
 
                 _ = _dispatcher.BeginInvoke(new Action(() =>
                     System.Windows.Application.Current?.Shutdown()));
@@ -291,16 +361,45 @@ namespace DesktopBuckets.Services
             }
             catch (OperationCanceledException)
             {
-                TryDelete(target);
+                TryDeleteDir(dir);
                 return false;
             }
             catch (Exception ex)
             {
                 Log.Error("Update download/launch failed", ex);
                 Raise(UpToDateOrError, "Downloading the update failed. See log.txt.");
-                TryDelete(target);
+                TryDeleteDir(dir);
                 return false;
             }
+        }
+
+        /// <summary>Null when the file carries an intact Authenticode signature from the
+        /// pinned certificate; otherwise a reason it must not be run.</summary>
+        internal static string? VerifyInstaller(string path)
+        {
+            var status = Interop.Authenticode.Verify(path, out int hr);
+            switch (status)
+            {
+                case Interop.Authenticode.Status.Valid:
+                case Interop.Authenticode.Status.IntactUntrustedChain:
+                    break;
+                case Interop.Authenticode.Status.NoSignature:
+                    return "the file is not signed";
+                case Interop.Authenticode.Status.Tampered:
+                    return "the file does not match its signature";
+                default:
+                    return $"WinVerifyTrust returned 0x{hr:X8}";
+            }
+
+            var thumb = Interop.Authenticode.SignerThumbprint(path);
+            if (!string.Equals(thumb, InstallerSignerThumbprint, StringComparison.OrdinalIgnoreCase))
+                return $"signed by an unexpected certificate (thumbprint {thumb ?? "none"})";
+            return null;
+        }
+
+        private static void TryDeleteDir(string dir)
+        {
+            try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); } catch { /* ignore */ }
         }
 
         // ---- helpers ----------------------------------------------
@@ -328,11 +427,6 @@ namespace DesktopBuckets.Services
 
         private void Raise(Action<string>? handler, string message) =>
             _ = _dispatcher.BeginInvoke(new Action(() => handler?.Invoke(message)));
-
-        private static void TryDelete(string path)
-        {
-            try { if (File.Exists(path)) File.Delete(path); } catch { /* ignore */ }
-        }
 
         public void Dispose() => _timer?.Stop();
     }

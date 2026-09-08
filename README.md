@@ -55,6 +55,13 @@ optional; the `.app` folder is hidden — the Settings window also shows its loc
 `token` is only needed if the repo is private — a fine-grained PAT with *Contents:
 Read-only*, stored on the machine, never in the binary.
 
+Before a downloaded installer is run, the app checks that it carries an intact
+Authenticode signature from the project certificate (thumbprint pinned in
+`UpdateService.InstallerSignerThumbprint`, matching `packaging/DesktopBuckets.cer`).
+An unsigned, tampered or differently-signed file is deleted and never launched, whatever
+`repo` says. Switching channel (nightly ↔ stable) offers that channel's latest build even
+if its version number is lower, since nightly build numbers climb past stable tags.
+
 ---
 
 ## What works today

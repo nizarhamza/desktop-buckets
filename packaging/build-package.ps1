@@ -52,7 +52,6 @@ $msix = Join-Path $OutDir 'DesktopBuckets.Package.msix'
 & $makeappx pack /d $layout /p $msix /o /nv
 if ($LASTEXITCODE -ne 0) { throw "makeappx failed ($LASTEXITCODE)" }
 
-& $signtool sign /fd SHA256 /a /f $PfxPath /p $PfxPassword $msix
-if ($LASTEXITCODE -ne 0) { throw "signtool failed ($LASTEXITCODE)" }
+& "$PSScriptRoot\sign-file.ps1" -Path $msix -PfxPath $PfxPath -PfxPassword $PfxPassword
 
 Write-Host "`nBuilt + signed: $msix  (Identity Version $Version)"

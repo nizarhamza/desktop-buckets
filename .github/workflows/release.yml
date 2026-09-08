@@ -96,11 +96,6 @@ jobs:
           Copy-Item packaging/out/DesktopBuckets.Package.msix        publish/ -Force
           Copy-Item packaging/DesktopBuckets.cer                     publish/ -Force
 
-      - name: Remove signing key from the runner
-        if: always()
-        shell: pwsh
-        run: Remove-Item packaging/DesktopBuckets-Dev.pfx -Force -ErrorAction SilentlyContinue
-
       - name: Ensure Inno Setup
         shell: pwsh
         run: |
@@ -111,6 +106,26 @@ jobs:
       - name: Build installer
         shell: pwsh
         run: iscc "/DMyAppVersion=${{ steps.ver.outputs.version }}" installer/DesktopBuckets.iss
+
+      # The app refuses to launch a downloaded installer unless it carries an intact
+      # Authenticode signature from the pinned certificate (UpdateService.
+      # InstallerSignerThumbprint), so an unsigned build here would never auto-update.
+      - name: Sign installer
+        shell: pwsh
+        env:
+          PFX_PW: ${{ secrets.SIGNING_PFX_PASSWORD }}
+        run: |
+          if (-not (Test-Path packaging/DesktopBuckets-Dev.pfx)) {
+            Write-Host "::error::No signing key - the installer would be rejected by the in-app updater."
+            exit 1
+          }
+          & packaging/sign-file.ps1 -Path (Get-Item installer/Output/*.exe).FullName `
+              -PfxPath packaging/DesktopBuckets-Dev.pfx -PfxPassword "$env:PFX_PW"
+
+      - name: Remove signing key from the runner
+        if: always()
+        shell: pwsh
+        run: Remove-Item packaging/DesktopBuckets-Dev.pfx -Force -ErrorAction SilentlyContinue
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
