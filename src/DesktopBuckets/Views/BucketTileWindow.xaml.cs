@@ -8,6 +8,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using DesktopBuckets.Interop;
+using DesktopBuckets.Models;
 using DesktopBuckets.Services;
 using DesktopBuckets.ViewModels;
 
@@ -619,22 +620,28 @@ namespace DesktopBuckets.Views
             };
             menu.Items.Add(rename);
 
+            // Exactly the 5 allowed tile shapes (TileShape.All) — not a raw 1-9 slot
+            // count, several of which used to map to the SAME shape via a sqrt formula
+            // (confusing: picking "3" vs "4" looked identical once rendered). Each item
+            // is labeled by its shape and sets SlotCount to that shape's capacity.
             var slots = new MenuItem { Header = "Icon slots" };
-            for (int n = 1; n <= 9; n++)
+            var currentShape = TileShape.For(_vm.Bucket.Config.SlotCount);
+            foreach (var shape in TileShape.All)
             {
-                int count = n;
+                var thisShape = shape;
+                int capacity = TileShape.Capacity(thisShape);
                 var item = new MenuItem
                 {
-                    Header = n.ToString(),
+                    Header = $"{thisShape.Rows} × {thisShape.Cols}",
                     IsCheckable = true,
-                    IsChecked = _vm.Bucket.Config.SlotCount == n,
+                    IsChecked = thisShape == currentShape,
                 };
                 item.Click += (_, _) =>
                 {
-                    _vm.SetSlotCount(count);
+                    _vm.SetSlotCount(capacity);
                     foreach (var obj in slots.Items)
                         if (obj is MenuItem m)
-                            m.IsChecked = m.Header?.ToString() == count.ToString();
+                            m.IsChecked = ReferenceEquals(m, item);
                 };
                 slots.Items.Add(item);
             }

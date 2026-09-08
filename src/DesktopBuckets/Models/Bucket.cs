@@ -58,12 +58,13 @@ namespace DesktopBuckets.Models
             // into a bucket left the grid reserving the full default layout regardless
             // of how many were actually there — e.g. 2 files rendering in a 2x2 grid
             // with two visibly empty slots, extra dead space nobody asked for. Size the
-            // initial slot count to what's really in the folder instead; the user can
-            // always change it afterwards via the tile's own "Icon slots" menu.
+            // initial slot count to the smallest of the 5 allowed shapes (TileShape)
+            // that fits what's really in the folder instead; the user can always change
+            // it afterwards via the tile's own "Icon slots" menu.
             if (isFreshConfig)
             {
                 int fileCount = bucket.EnumerateFiles().Count;
-                if (fileCount > 0) config.SlotCount = Math.Clamp(fileCount, 2, 9);
+                if (fileCount > 0) config.SlotCount = TileShape.CapacityFor(fileCount);
             }
 
             bucket.SaveConfig();
@@ -155,9 +156,13 @@ namespace DesktopBuckets.Models
             SaveConfig();
         }
 
+        /// <summary>Sets the bucket's capacity, snapped to the nearest of the 5 allowed
+        /// shapes' capacities (2, 3, 4, 6, 9 — see TileShape) rather than clamped to an
+        /// arbitrary range: any input, including one carried over from before this
+        /// shape set existed, always lands on a value that names an exact shape.</summary>
         public void SetSlotCount(int count)
         {
-            count = Math.Clamp(count, 1, 9);
+            count = TileShape.CapacityFor(count);
             if (Config.SlotCount != count)
             {
                 Config.SlotCount = count;

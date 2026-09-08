@@ -164,14 +164,34 @@ namespace DesktopBuckets.Tests
         }
 
         [Fact]
-        public void SetSlotCountClampsTo1Through9()
+        public void SetSlotCountSnapsToTheNearestAllowedShapeCapacity()
         {
+            // No 1x1 shape exists any more — the smallest is 1x2 (capacity 2), so even a
+            // request for 0 or 1 lands there. A request above the largest shape's
+            // capacity (3x3 = 9) caps at 9, same as before.
             using var tmp = new TempDir();
             var b = Bucket.LoadOrCreate(tmp.Path);
             b.SetSlotCount(0);
-            Assert.Equal(1, b.Config.SlotCount);
+            Assert.Equal(2, b.Config.SlotCount);
             b.SetSlotCount(99);
             Assert.Equal(9, b.Config.SlotCount);
+        }
+
+        [Theory]
+        [InlineData(2, 2)] // exact shape capacities pass through unchanged
+        [InlineData(3, 3)]
+        [InlineData(4, 4)]
+        [InlineData(6, 6)]
+        [InlineData(9, 9)]
+        [InlineData(5, 6)]  // between shapes: snaps UP to the next one that fits
+        [InlineData(7, 9)]
+        [InlineData(8, 9)]
+        public void SetSlotCountSnapsNonCanonicalValuesToTheNextShapeUp(int requested, int expected)
+        {
+            using var tmp = new TempDir();
+            var b = Bucket.LoadOrCreate(tmp.Path);
+            b.SetSlotCount(requested);
+            Assert.Equal(expected, b.Config.SlotCount);
         }
 
         // ---- initial slot count on fresh config -------------------------

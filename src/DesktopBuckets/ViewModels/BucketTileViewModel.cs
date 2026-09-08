@@ -92,11 +92,13 @@ namespace DesktopBuckets.ViewModels
 
         private void RecomputeGrid()
         {
-            int n = Math.Clamp(Bucket.Config.SlotCount, 1, 9);
-            int cols = (int)Math.Ceiling(Math.Sqrt(n));
-            int rows = (int)Math.Ceiling(n / (double)cols);
-            Columns = cols;
-            Rows = rows;
+            // Shape comes from a fixed set of 5 (see TileShape), not a formula on raw
+            // item count — a stale/non-canonical stored SlotCount (from before this
+            // shape set existed, or a future direct edit) still resolves to a sane
+            // shape here rather than needing a migration step.
+            var shape = TileShape.For(Bucket.Config.SlotCount);
+            Columns = shape.Cols;
+            Rows = shape.Rows;
         }
 
         // ---- file actions ------------------------------------------------
