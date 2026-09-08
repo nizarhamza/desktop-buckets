@@ -40,7 +40,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
 ; Close / relaunch handling for a running instance (mutex set by the app; the
-; Local\ name is current, the Global\ one is what builds before 0.2.2 created).
+; Local\ name is current, the Global\ one is what builds before 0.3.0 created).
 AppMutex=Local\DesktopBuckets.SingleInstance.v1,Global\DesktopBuckets.SingleInstance.v1
 CloseApplications=yes
 RestartApplications=no
