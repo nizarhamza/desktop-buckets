@@ -126,10 +126,6 @@ namespace DesktopBuckets.Views
             double sxx = dpi.DpiScaleX, syy = dpi.DpiScaleY;
             var cell = DesktopShell.GetIconGrid().CellPx;
 
-            // The tile occupies a whole-cell block (footprint for snap + displacement),
-            // but the visible window is inset by a margin and centred in that block — so
-            // the gap to the surrounding icons is equal on all four sides, the way an icon
-            // sits centred in its own cell. _gx/_gy are that inset (device px).
             // The window fills its whole-cell block exactly — edges land ON the desktop
             // icon-cell lines (matches the cell boxes shown when icons are selected). The
             // snap-drift fix (modal-phase origin) is what makes this line up.
@@ -137,10 +133,20 @@ namespace DesktopBuckets.Views
             if (cell.Width > 12 && cell.Height > 12)
             {
                 double contentPxW = contentWdip * sxx, contentPxH = contentHdip * syy;
-                int cols = Math.Max(1, (int)Math.Ceiling(contentPxW / cell.Width - 0.12));
-                int rows = Math.Max(1, (int)Math.Ceiling(contentPxH / cell.Height - 0.12));
-                _blockW = cols * cell.Width;
-                _blockH = rows * cell.Height;
+
+                // The icon grid's OWN row/column count (RecomputeGrid, e.g. 1 row for a
+                // 2-file bucket) is the semantically correct cell-span — use it directly
+                // rather than re-deriving one from rendered pixel size. Re-deriving via
+                // ceiling(pixels / cellSize) rounds up to a WHOLE EXTRA cell the instant
+                // content spills even slightly past one cell boundary, which the name
+                // label reliably does for a 1-row bucket — doubling the tile's height for
+                // no reason, mostly empty space. Math.Max still grows past the grid's own
+                // count when content genuinely needs more (a long name, larger DPI/font),
+                // so nothing clips; it just no longer force-inflates the common case.
+                int vmCols = Math.Max(1, _vm.Columns);
+                int vmRows = Math.Max(1, _vm.Rows);
+                _blockW = Math.Max(vmCols * cell.Width, contentPxW);
+                _blockH = Math.Max(vmRows * cell.Height, contentPxH);
                 Width = _blockW / sxx;
                 Height = _blockH / syy;
             }
