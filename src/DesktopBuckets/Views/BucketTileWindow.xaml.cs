@@ -112,71 +112,88 @@ namespace DesktopBuckets.Views
             catch (Exception ex) { Log.Error("RefitToContent failed", ex); }
         }
 
-        // Whole-cell block the tile occupies (for snap + displacement), plus a gutter the
-        // frosted rect overhangs into on every side so it reaches toward the neighbouring
-        // icons. All four are in DEVICE PIXELS (the icon/listview frame).
+        // _blockW/_blockH: the whole-cell FOOTPRINT the tile reserves for snap +
+        // displacement purposes (MakeSpace, SnappedBlockPx) — ALWAYS a whole multiple of
+        // the grid cell. This must never be a partial cell: MakeSpace decides which
+        // desktop cells are "under the tile" by testing geometric overlap against this
+        // rect, so if it crept even a few px into a neighbouring row or column, that
+        // whole row/column would be wrongly treated as blocked and its icons pushed —
+        // a 2-file tile clearing a dozen icons instead of the 2 cells it actually needs.
+        // _gx/_gy: how far the VISIBLE window is inset from that footprint on each side,
+        // so a tile whose content doesn't fill its whole reserved block (a sparse 1-row
+        // bucket reserving 2 cell-heights) is centred within it instead of stretched to
+        // fill it. All four are in DEVICE PIXELS (the icon/listview frame).
         private double _gx, _gy, _blockW, _blockH;
 
-        /// <summary>Sizes the window to a whole-cell block (2×2, 1×2, 3×3, …) plus a gutter
-        /// overhang, so the visible tile hugs the surrounding icons. Content is DIP; the
-        /// grid cell is device px, so convert through the window DPI.</summary>
+        /// <summary>Sizes the window to fit its content — centred within a whole-cell
+        /// footprint block reserved for snap + displacement. Content is DIP; the grid
+        /// cell is device px, so convert through the window DPI.</summary>
         private void SizeToWholeCells(double contentWdip, double contentHdip)
         {
             var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
             double sxx = dpi.DpiScaleX, syy = dpi.DpiScaleY;
             var cell = DesktopShell.GetIconGrid().CellPx;
 
-            // The window fills its whole-cell block exactly — edges land ON the desktop
-            // icon-cell lines (matches the cell boxes shown when icons are selected). The
-            // snap-drift fix (modal-phase origin) is what makes this line up.
-            _gx = _gy = 0;
             if (cell.Width > 12 && cell.Height > 12)
             {
                 double contentPxW = contentWdip * sxx, contentPxH = contentHdip * syy;
 
-                // The icon grid's OWN row/column count (RecomputeGrid, e.g. 1 row for a
-                // 2-file bucket) is the semantically correct cell-span — use it directly
-                // rather than re-deriving one from rendered pixel size. Re-deriving via
-                // ceiling(pixels / cellSize) rounds up to a WHOLE EXTRA cell the instant
-                // content spills even slightly past one cell boundary, which the name
-                // label reliably does for a 1-row bucket — doubling the tile's height for
-                // no reason, mostly empty space. Math.Max still grows past the grid's own
-                // count when content genuinely needs more (a long name, larger DPI/font),
-                // so nothing clips; it just no longer force-inflates the common case.
+                // The footprint is whole cells, sized from the icon grid's OWN known
+                // row/column count (RecomputeGrid, e.g. 1 row for a 2-file bucket) —
+                // not re-derived from rendered pixel size, which would round up to a
+                // whole EXTRA cell the instant content spills slightly past one cell
+                // boundary (which the name label reliably does for a 1-row bucket).
+                // Ceiling only grows it past that when content genuinely needs more
+                // room (a long name, larger DPI/font) — always a WHOLE cell more, never
+                // a partial one.
                 int vmCols = Math.Max(1, _vm.Columns);
                 int vmRows = Math.Max(1, _vm.Rows);
-                _blockW = Math.Max(vmCols * cell.Width, contentPxW);
-                _blockH = Math.Max(vmRows * cell.Height, contentPxH);
-                Width = _blockW / sxx;
-                Height = _blockH / syy;
+                int blockCols = Math.Max(vmCols, (int)Math.Ceiling(contentPxW / cell.Width - 0.12));
+                int blockRows = Math.Max(vmRows, (int)Math.Ceiling(contentPxH / cell.Height - 0.12));
+                _blockW = blockCols * cell.Width;
+                _blockH = blockRows * cell.Height;
+
+                // The visible window is only as big as its content needs, centred in
+                // that footprint — never larger than the footprint (Min guards a stray
+                // content measurement from ever exceeding the block it's centred in).
+                _gx = Math.Max(0, (_blockW - contentPxW) / 2);
+                _gy = Math.Max(0, (_blockH - contentPxH) / 2);
+                Width = Math.Min(contentPxW, _blockW) / sxx;
+                Height = Math.Min(contentPxH, _blockH) / syy;
             }
             else
             {
                 _blockW = contentWdip * sxx; _blockH = contentHdip * syy;
+                _gx = _gy = 0;
                 Width = contentWdip;
                 Height = contentHdip;
             }
         }
 
-        /// <summary>The tile window's rect in listview-client px (Rect.Empty on failure).
-        /// Position comes from the managed <see cref="Left"/>/<see cref="Top"/>, size from
-        /// <see cref="_blockW"/>/<see cref="_blockH"/> (set synchronously by
-        /// <see cref="SizeToWholeCells"/>) — deliberately NOT a native <c>GetWindowRect</c>
-        /// query, and deliberately not <c>ActualWidth</c>/<c>ActualHeight</c> either.
-        /// <c>GetWindowRect</c> reflects the real HWND, which WPF updates asynchronously
-        /// on the next layout pass after <c>Left</c>/<c>Top</c> change — under a fast
-        /// drag it can read one frame stale, which is what left a released tile unsnapped
-        /// (and icons still under it) after a rapid drag end. <c>ActualWidth</c> has the
-        /// same lag risk right after <see cref="SizeToWholeCells"/> sets <c>Width</c>,
-        /// before the next layout pass catches up — <c>_blockW</c> needs no layout pass,
-        /// it's set the instant the size decision is made.</summary>
+        /// <summary>The tile WINDOW's own rect (its actual, possibly footprint-inset
+        /// size) in listview-client px (Rect.Empty on failure). Position comes from the
+        /// managed <see cref="Left"/>/<see cref="Top"/>, size from the managed
+        /// <see cref="Width"/>/<see cref="Height"/> — deliberately NOT a native
+        /// <c>GetWindowRect</c> query, and deliberately not <c>ActualWidth</c>/
+        /// <c>ActualHeight</c> either. <c>GetWindowRect</c> reflects the real HWND,
+        /// which WPF updates asynchronously on the next layout pass after Left/Top
+        /// change — under a fast drag it can read one frame stale, which is what left a
+        /// released tile unsnapped (and icons still under it) after a rapid drag end.
+        /// <c>ActualWidth</c> has the same lag risk right after
+        /// <see cref="SizeToWholeCells"/> sets <c>Width</c>, before the next layout pass
+        /// catches up — the managed <c>Width</c>/<c>Height</c> need no layout pass,
+        /// they're set the instant the size decision is made. Callers that need the
+        /// whole-cell FOOTPRINT (not just the window) subtract <see cref="_gx"/>/
+        /// <see cref="_gy"/> from this rect's position — see <see cref="SnappedBlockPx"/>.</summary>
         private Rect TileClientRectPx()
         {
             if (!DesktopShell.TryGetListViewRect(out var lv)) return Rect.Empty;
             var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
             double screenLeftPx = Left * dpi.DpiScaleX;
             double screenTopPx = Top * dpi.DpiScaleY;
-            return new Rect(screenLeftPx - lv.Left, screenTopPx - lv.Top, _blockW, _blockH);
+            double widthPx = Width * dpi.DpiScaleX;
+            double heightPx = Height * dpi.DpiScaleY;
+            return new Rect(screenLeftPx - lv.Left, screenTopPx - lv.Top, widthPx, heightPx);
         }
 
         /// <summary>The whole-cell footprint in client px, snapped to the grid (Rect.Empty
