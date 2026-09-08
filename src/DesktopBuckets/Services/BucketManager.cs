@@ -112,6 +112,15 @@ namespace DesktopBuckets.Services
             }
         }
 
+        public IEnumerable<(int col, int row)> OtherParkedCells(object exclude)
+        {
+            foreach (var e in _entries.Values)
+            {
+                if (ReferenceEquals(e.Window, exclude)) continue;
+                foreach (var cell in e.Window.ParkedCells) yield return cell;
+            }
+        }
+
         public void PromptCreateBucket(string? parentFolder = null)
         {
             var name = InputDialog.Ask("New bucket", "Bucket name", "New Bucket", "Create");

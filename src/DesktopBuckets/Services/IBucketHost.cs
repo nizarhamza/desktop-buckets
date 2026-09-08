@@ -27,5 +27,12 @@ namespace DesktopBuckets.Services
         /// freshly created/dragged-in tile can avoid landing on top of one that's
         /// already there instead of just stacking blindly.</summary>
         IEnumerable<Rect> OtherTileRects(object exclude);
+
+        /// <summary>Grid cells (global/encoded column terms) every other live tile has
+        /// currently parked a desktop icon in. Each tile's own icon-push tracks only the
+        /// icons IT has displaced, so without this a tile being dragged near another one
+        /// can independently land an icon on a cell the other tile already claimed —
+        /// real icons ending up on top of each other, garbled labels.</summary>
+        IEnumerable<(int col, int row)> OtherParkedCells(object exclude);
     }
 }

@@ -50,6 +50,18 @@ namespace DesktopBuckets
                 {
                     Interop.DesktopShell.EnsureSnapToGridDisabled();
                     int moved = Interop.DesktopShell.RealignAllIconsToGrid();
+                    // RealignAllIconsToGrid only SCHEDULES icon moves — IconAnimator slides
+                    // them over ~260ms via a DispatcherTimer that needs the message pump
+                    // running. This process has no window and is about to Shutdown() right
+                    // after this block, which kills that pump immediately: without this
+                    // call, most icons (everything past the first ~16ms tick, i.e. nearly
+                    // all of them for a desktop with more than a couple to realign) would
+                    // never actually reach their resolved position, even though the "moved
+                    // N icon(s)" log line below claims they did (it counts scheduling, not
+                    // completion). FlushAndRelease writes every in-flight tween straight to
+                    // its final target instead of animating it, which is exactly right for
+                    // a one-shot CLI/recovery path with no UI to animate for anyone.
+                    Interop.IconAnimator.FlushAndRelease();
                     Services.Log.Info($"--realign-now moved {moved} icon(s).");
                 }
                 catch (Exception ex) { Services.Log.Error("--realign-now failed", ex); }

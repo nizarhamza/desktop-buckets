@@ -451,8 +451,16 @@ namespace DesktopBuckets.Interop
         /// move. "Under" and "blocked" are judged against the tile's actual rectangle and
         /// each icon's visible area (image + label inside the cell), so nothing is ever
         /// placed into a cell the tile covers, even while it hovers off-grid. Icons
-        /// already parked stay put unless the tile now covers them.</summary>
-        public static void MakeSpace(DragDisplacement state, Rect tileRectPx)
+        /// already parked stay put unless the tile now covers them. <paramref
+        /// name="crossTileReserved"/> is every cell ANOTHER live tile has currently
+        /// parked an icon in (global/encoded column terms) — this tile's own push has no
+        /// other way to know those cells are taken, since each tile tracks only the
+        /// icons IT has displaced; passing them in prevents two tiles near each other
+        /// from independently landing icons on the same cell (seen live: real desktop
+        /// icons ending up on top of each other, garbled labels, during ordinary
+        /// dragging near an existing tile).</summary>
+        public static void MakeSpace(DragDisplacement state, Rect tileRectPx,
+            IEnumerable<(int col, int row)>? crossTileReserved = null)
         {
             if (!state.Captured) BeginDrag(state);
             if (!state.Captured) return;
@@ -519,6 +527,13 @@ namespace DesktopBuckets.Interop
                     if (before[pl.idx] != to) moves.Add((pl.idx, to, pl.stage));
                 }
 
+                // Cells another live tile has already parked an icon in. ComputeColumnPush
+                // built `moves` with zero knowledge these exist (each tile's push only sees
+                // its own displaced icons), so both the overflow fallback below and the main
+                // ripple result need a chance to route around them.
+                var reservedSet = crossTileReserved != null
+                    ? new HashSet<(int, int)>(crossTileReserved) : new HashSet<(int, int)>();
+
                 // Whatever ComputeColumnPush couldn't fit anywhere on the grid (monitor
                 // packed solid): place at the nearest free cell that isn't under the tile.
                 // Should be exceedingly rare.
@@ -528,7 +543,7 @@ namespace DesktopBuckets.Interop
                     int stage = placements.NextStage;
                     foreach (var idx in placements.Overflow)
                     {
-                        if (FindFreeCell(grid, before[idx], new HashSet<(int, int)>(), occSet, bounds, tileRectPx) is not { } near)
+                        if (FindFreeCell(grid, before[idx], reservedSet, occSet, bounds, tileRectPx) is not { } near)
                         {
                             Services.Log.Error($"make space: no room left on the monitor for icon {idx}; leaving it under the tile.");
                             continue;
@@ -537,6 +552,9 @@ namespace DesktopBuckets.Interop
                         occSet.Add(near);
                     }
                 }
+
+                if (reservedSet.Count > 0)
+                    moves = AvoidReservedCells(moves, before, grid, reservedSet, bounds, tileRectPx);
 
                 if (moves.Count == 0) return;
 
@@ -725,6 +743,46 @@ namespace DesktopBuckets.Interop
             return occ;
         }
 
+        /// <summary>Redirects any move whose destination lands on a cell listed in
+        /// <paramref name="reserved"/> — cells another live tile has already parked an
+        /// icon in, which ComputeColumnPush's ripple has no way to know about since each
+        /// tile tracks only the icons IT has displaced. A redirected icon ring-searches
+        /// out from its OWN pre-push cell (not from the contested destination) for the
+        /// nearest spot clear of both this tile's own resulting occupancy and every
+        /// reserved cell. If truly nowhere fits, the icon is left at the original
+        /// (colliding) destination rather than risk landing it somewhere worse — matches
+        /// the same "log and move on" philosophy the overflow fallback above already
+        /// uses. Pure aside from the grid's own geometry queries, so it's directly
+        /// unit-testable without live listview interop.</summary>
+        internal static List<(int idx, (int col, int row) to, int stage)> AvoidReservedCells(
+            IReadOnlyList<(int idx, (int col, int row) to, int stage)> moves,
+            IReadOnlyDictionary<int, (int col, int row)> before,
+            IconGrid grid, ISet<(int, int)> reserved, Rect bounds, Rect footprint)
+        {
+            var result = moves.ToList();
+            if (reserved.Count == 0) return result;
+
+            var occ = OccupiedAfterMoves(before, moves);
+            for (int i = 0; i < result.Count; i++)
+            {
+                var (idx, to, stage) = result[i];
+                if (!reserved.Contains(to)) continue;
+
+                occ.Remove(to);
+                if (FindFreeCell(grid, before[idx], reserved, occ, bounds, footprint) is { } alt)
+                {
+                    result[i] = (idx, alt, stage);
+                    occ.Add(alt);
+                }
+                else
+                {
+                    occ.Add(to); // no better option — keep it "occupied" for the rest of this pass
+                    Services.Log.Error($"make space: destination {to} for icon {idx} is claimed by another bucket and no alternative cell was free.");
+                }
+            }
+            return result;
+        }
+
         /// <summary>Median offset of the icons from their cell corners: where the icon
         /// image sits inside its cell.</summary>
         private static Point IconPadding(IconGrid grid, DragDisplacement state) =>
@@ -874,7 +932,7 @@ namespace DesktopBuckets.Interop
 
         private static (int col, int row)? FindFreeCell(
             IconGrid g, (int col, int row) from,
-            HashSet<(int, int)> reserved, HashSet<(int, int)> occupied,
+            ISet<(int, int)> reserved, ISet<(int, int)> occupied,
             Rect workArea, Rect footprint)
         {
             for (int radius = 1; radius <= 25; radius++)

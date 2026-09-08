@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Windows;
@@ -24,6 +25,12 @@ namespace DesktopBuckets.Views
         // manual drag; desktop icons are pushed aside only once the tile RESTS in a
         // cell for DwellBeforeMakeSpace (or is dropped), never while it is moving
         private readonly DesktopShell.DragDisplacement _displaced = new();
+
+        /// <summary>Cells THIS tile has currently parked a desktop icon in, so another
+        /// tile's own MakeSpace can avoid landing an icon on top of one of these — see
+        /// IBucketHost.OtherParkedCells.</summary>
+        internal IEnumerable<(int col, int row)> ParkedCells => _displaced.Parked.Values.Select(p => p.Cell);
+
         private static readonly TimeSpan DwellBeforeMakeSpace = TimeSpan.FromSeconds(1);
         private readonly DispatcherTimer _dwellTimer;
         private bool _dragging;
@@ -462,7 +469,7 @@ namespace DesktopBuckets.Views
             try
             {
                 var rect = snapped ? SnappedBlockPx(_dragGrid) : TileClientRectPx();
-                if (!rect.IsEmpty) DesktopShell.MakeSpace(_displaced, rect);
+                if (!rect.IsEmpty) DesktopShell.MakeSpace(_displaced, rect, _host.OtherParkedCells(this));
             }
             catch (Exception ex) { Log.Error("make space failed", ex); }
         }
