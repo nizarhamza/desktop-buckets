@@ -5,7 +5,8 @@ using System.Text.Json.Serialization;
 
 namespace DesktopBuckets.Services
 {
-    /// <summary>Small helpers for atomic, human-readable JSON persistence.</summary>
+    /// <summary>Small helpers for atomic (write-temp-then-rename), human-readable JSON
+    /// persistence. Reads and writes never throw for ordinary I/O trouble.</summary>
     internal static class JsonUtil
     {
         private static readonly JsonSerializerOptions Options = new()
@@ -30,35 +31,66 @@ namespace DesktopBuckets.Services
             }
         }
 
-        public static void Write<T>(string path, T value)
+        /// <summary>Atomically replaces <paramref name="path"/> with the serialised value:
+        /// the JSON is written to a sibling temp file which is then renamed over the
+        /// target, so an interruption leaves either the old file or the new one, never a
+        /// truncated half. I/O failures are logged and reported as <c>false</c> rather
+        /// than thrown into whatever UI handler triggered the save.</summary>
+        public static bool Write<T>(string path, T value)
         {
-            var dir = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-
-            var json = JsonSerializer.Serialize(value, Options);
             var tmp = path + ".tmp";
-            File.WriteAllText(tmp, json);
+            bool wasHidden = false;
+            try
+            {
+                var dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
-            // Preserve the hidden attribute across the replace.
-            FileAttributes? existing = File.Exists(path) ? File.GetAttributes(path) : null;
-            if (existing.HasValue)
-                File.SetAttributes(path, existing.Value & ~FileAttributes.Hidden & ~FileAttributes.ReadOnly);
+                var json = JsonSerializer.Serialize(value, Options);
+                using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+                using (var w = new StreamWriter(fs))
+                {
+                    w.Write(json);
+                    w.Flush();
+                    fs.Flush(flushToDisk: true);
+                }
 
-            File.Copy(tmp, path, overwrite: true);
-            File.Delete(tmp);
+                // A Hidden or ReadOnly target makes the rename fail; clear them for the
+                // swap and put Hidden back afterwards.
+                if (File.Exists(path))
+                {
+                    var existing = File.GetAttributes(path);
+                    wasHidden = existing.HasFlag(FileAttributes.Hidden);
+                    File.SetAttributes(path, existing & ~FileAttributes.Hidden & ~FileAttributes.ReadOnly);
+                }
 
-            if (existing.HasValue && existing.Value.HasFlag(FileAttributes.Hidden))
-                File.SetAttributes(path, File.GetAttributes(path) | FileAttributes.Hidden);
+                File.Move(tmp, path, overwrite: true);
+
+                if (wasHidden) SetHidden(path);
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+            {
+                Log.Error($"Could not save {path}", ex);
+                try { File.Delete(tmp); } catch { /* best effort */ }
+                if (wasHidden) SetHidden(path); // the old file survived; keep it out of sight
+                return false;
+            }
+        }
+
+        private static void SetHidden(string path)
+        {
+            try { File.SetAttributes(path, File.GetAttributes(path) | FileAttributes.Hidden); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
         }
 
         /// <summary>Writes JSON and marks the file Hidden so it stays out of the user's way
         /// when they open the bucket folder in Explorer.</summary>
-        public static void WriteHidden<T>(string path, T value)
+        public static bool WriteHidden<T>(string path, T value)
         {
-            Write(path, value);
-            try { File.SetAttributes(path, File.GetAttributes(path) | FileAttributes.Hidden); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
+            if (!Write(path, value)) return false;
+            SetHidden(path);
+            return true;
         }
     }
 }

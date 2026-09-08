@@ -101,6 +101,17 @@
         <TextBlock Text="Turning this on asks for approval once."
                    Foreground="#FF9A9AA6" FontSize="11" Margin="20,3,0,0" />
 
+        <Border Height="1" Background="#FF3A3A44" Margin="0,20,0,0" />
+
+        <!-- Data -->
+        <TextBlock Text="DATA" Style="{StaticResource SectionHeader}" Margin="0,16,0,8" />
+        <TextBlock Text="Settings, the bucket list and log.txt live in:" Foreground="#FF9A9AA6" FontSize="11" />
+        <StackPanel Orientation="Horizontal" Margin="0,4,0,0" VerticalAlignment="Center">
+            <TextBlock x:Name="DataDirText" Text="" FontSize="11" VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis" MaxWidth="290" />
+            <Button Content="Open" Margin="12,0,0,0" Height="22" Padding="10,0" Click="OpenDataDir_Click" />
+        </StackPanel>
+
         <Button Content="Close" HorizontalAlignment="Right" Margin="0,22,0,0"
                 MinWidth="90" IsCancel="True" Click="Close_Click" />
     </StackPanel>

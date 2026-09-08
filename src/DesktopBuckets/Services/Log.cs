@@ -3,8 +3,8 @@ using System.IO;
 
 namespace DesktopBuckets.Services
 {
-    /// <summary>Best-effort rolling log at <c>%APPDATA%\DesktopBuckets\log.txt</c>.
-    /// Never throws.</summary>
+    /// <summary>Best-effort rolling log at <c>%USERPROFILE%\Desktop Buckets\.app\log.txt</c>
+    /// (<see cref="BucketStore.AppDataDir"/>). Never throws.</summary>
     internal static class Log
     {
         private static readonly object Gate = new();

@@ -7,8 +7,9 @@ namespace DesktopBuckets.Services
 {
     /// <summary>
     /// Tracks which folders are buckets. The list itself lives in
-    /// <c>%APPDATA%\DesktopBuckets\buckets.json</c>; all other bucket state lives in
-    /// each folder's own <c>.bucket.json</c> so a bucket is portable.
+    /// <c>%USERPROFILE%\Desktop Buckets\.app\buckets.json</c> (see <see cref="AppDataDir"/>);
+    /// all other bucket state lives in each folder's own <c>.bucket.json</c> so a bucket
+    /// is portable.
     /// </summary>
     public sealed class BucketStore
     {

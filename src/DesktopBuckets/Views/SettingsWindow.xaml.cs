@@ -49,7 +49,23 @@ namespace DesktopBuckets.Views
             RunAtSignInCheck.IsChecked = StartupRegistration.IsEnabled;
             ShellMenuCheck.IsChecked = _host.ShellIntegrationEnabled;
 
+            DataDirText.Text = BucketStore.AppDataDir;
+            DataDirText.ToolTip = BucketStore.AppDataDir;
+
             _loading = false;
+        }
+
+        private void OpenDataDir_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                System.IO.Directory.CreateDirectory(BucketStore.AppDataDir);
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(BucketStore.AppDataDir)
+                {
+                    UseShellExecute = true,
+                });
+            }
+            catch (Exception ex) { Log.Error("Open data folder failed", ex); }
         }
 
         private static void SelectByTag(ComboBox combo, string tag)

@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace DesktopBuckets.Models
 {
     /// <summary>
-    /// Auto-update settings, read from <c>%APPDATA%\DesktopBuckets\update.json</c>.
+    /// Auto-update settings, read from <c>%USERPROFILE%\Desktop Buckets\.app\update.json</c>.
     /// The file is optional — a sensible default targets this project's public releases.
     /// A <see cref="Token"/> is only needed while the GitHub repo is private; put a
     /// fine-grained PAT with <c>Contents: Read-only</c> on just this repo in the file,
@@ -31,7 +31,7 @@ namespace DesktopBuckets.Models
     }
 
     /// <summary>Mutable state the updater keeps to itself, in
-    /// <c>%APPDATA%\DesktopBuckets\update-state.json</c>.</summary>
+    /// <c>%USERPROFILE%\Desktop Buckets\.app\update-state.json</c>.</summary>
     public sealed class UpdateState
     {
         public DateTime LastCheckUtc { get; set; }

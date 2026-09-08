@@ -39,8 +39,9 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
-; Close / relaunch handling for a running instance (mutex set by the app).
-AppMutex=DesktopBuckets.SingleInstance.v1,Global\DesktopBuckets.SingleInstance.v1
+; Close / relaunch handling for a running instance (mutex set by the app; the
+; Local\ name is current, the Global\ one is what builds before 0.2.2 created).
+AppMutex=Local\DesktopBuckets.SingleInstance.v1,Global\DesktopBuckets.SingleInstance.v1
 CloseApplications=yes
 RestartApplications=no
 
@@ -96,30 +97,68 @@ Filename: "{app}\{#MyAppExeName}"; Parameters: "--unregister-shell"; \
   Flags: runhidden skipifdoesntexist waituntilterminated; RunOnceId: "UnregisterShell"
 
 [Code]
-procedure KillRunning;
-var
-  rc: Integer;
+// The app's single-instance mutex names (see Services\SingleInstance.cs).
+const
+  AppMutexes = '{#SetupSetting("AppMutex")}';
+
+function AppIsRunning: Boolean;
 begin
+  Result := CheckForMutexes(AppMutexes);
+end;
+
+// Ask a running instance to exit on its own terms (it flushes .bucket.json files
+// and slides displaced desktop icons home), wait for it, and only fall back to a
+// hard kill if it hasn't gone after 20 s. A forced kill mid-save is how pins and
+// tile positions used to get lost.
+procedure StopRunningApp;
+var
+  exe: String;
+  rc, i: Integer;
+begin
+  if not AppIsRunning then
+    exit;
+
+  exe := ExpandConstant('{app}\{#MyAppExeName}');
+  if FileExists(exe) then
+    Exec(exe, '--quit', '', SW_HIDE, ewNoWait, rc);
+
+  for i := 1 to 200 do
+  begin
+    if not AppIsRunning then
+      exit;
+    Sleep(100);
+  end;
+
+  Log('App did not exit on request; forcing.');
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM {#MyAppExeName}',
        '', SW_HIDE, ewWaitUntilTerminated, rc);
 end;
 
-function InitializeSetup(): Boolean;
+// Runs after the user has confirmed the install (and in the silent update path),
+// never on merely opening the installer.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
-  KillRunning;
+  StopRunningApp;
+  Result := '';
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  StopRunningApp;
   Result := True;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
-  dataDir: String;
+  root, dataDir: String;
 begin
-  if CurUninstallStep = usUninstall then
-    KillRunning;
-
   if CurUninstallStep = usPostUninstall then
   begin
-    dataDir := ExpandConstant('{userappdata}\DesktopBuckets');
+    // App state (buckets.json, update.json, log.txt) lives in a hidden .app folder
+    // under the bucket root. Only that folder is ever removed; the root itself holds
+    // the user's buckets and is never touched.
+    root := ExpandConstant('{%USERPROFILE}\Desktop Buckets');
+    dataDir := root + '\.app';
     if DirExists(dataDir) then
     begin
       if MsgBox('Also remove Desktop Buckets settings and the diagnostic log?' + #13#10 +

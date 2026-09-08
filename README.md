@@ -39,7 +39,8 @@ Two channels:
 | `nightly` | the rolling build published on **every push to `main`** (`0.1.<run>`) | ✔ |
 | `stable` | the latest `v*` tagged release | |
 
-Override defaults with `%APPDATA%\DesktopBuckets\update.json` (all keys optional):
+Override defaults with `%USERPROFILE%\Desktop Buckets\.app\update.json` (all keys
+optional; the `.app` folder is hidden — the Settings window also shows its location):
 
 ```json
 {
@@ -138,11 +139,20 @@ its sole representation. "Open bucket folder" still opens it.
 
 ### Storage
 
-- `%APPDATA%\DesktopBuckets\buckets.json` — just the list of bucket folder paths.
+App state lives in a hidden `.app` folder under the bucket root, `%USERPROFILE%\Desktop
+Buckets\.app` (not `%APPDATA%`: when the exe runs with the shell package's identity,
+Windows redirects AppData to a per-package folder, which would silently split state).
+
+- `%USERPROFILE%\Desktop Buckets\.app\buckets.json` — just the list of bucket folder paths.
 - `<bucket folder>\.bucket.json` (hidden) — id, display name, pin list, last-opened map,
   slot count, window position, lock flag. Keeping state *in the folder* makes a bucket
   portable.
-- `%APPDATA%\DesktopBuckets\log.txt` — best-effort rolling diagnostic log (512 KB cap).
+- `%USERPROFILE%\Desktop Buckets\.app\log.txt` — best-effort rolling diagnostic log (512 KB cap).
+- `%USERPROFILE%\Desktop Buckets\.app\update.json` / `update-state.json` — updater
+  settings and state.
+
+All JSON is written temp-file-then-rename, so an interrupted save leaves the previous
+file intact rather than a truncated one.
 
 ---
 
@@ -240,7 +250,7 @@ Not yet implemented / rough edges:
 - **WorkerW wallpaper parenting** as an option, for tiles that should hide on "Show
   desktop" like real desktop icons. v1 keeps them visible (Fences-style).
 - **Multi-monitor position clamping** on display-configuration changes is basic.
-- **Folder drops** (dropping a directory onto a tile is currently ignored; files only).
 - **Theming / size presets**, custom accent, compact vs comfortable density.
 - **Delta updates** — the updater currently pulls the full ~49 MB installer each time.
-- **Tests** for `FileRankingService` and `Bucket` pin/prune logic (pure, easy to cover).
+- **UI tests** — `tests/DesktopBuckets.Tests` covers the pure logic (ranking, pin/prune,
+  version parsing, JSON persistence); the tile windows and interop are untested.

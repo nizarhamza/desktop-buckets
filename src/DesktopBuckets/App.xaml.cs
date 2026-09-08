@@ -40,11 +40,22 @@ namespace DesktopBuckets
                 return;
             }
 
+            // `--quit` with no instance to quit: nothing to do.
+            if (e.Args.Any(a => a.Equals("--quit", StringComparison.OrdinalIgnoreCase)))
+            {
+                _single.Dispose();
+                _single = null;
+                Shutdown();
+                return;
+            }
+
             DispatcherUnhandledException += OnUnhandledException;
 
-            _single.StartServer();
+            // Subscribe (inside Start) before listening, so a command that arrives in
+            // the first milliseconds isn't dropped on the floor.
             _manager = new BucketManager(_single);
             _manager.Start();
+            _single.StartServer();
 
             var i = Array.FindIndex(e.Args, a => a.Equals("--new-bucket", StringComparison.OrdinalIgnoreCase));
             if (i >= 0)

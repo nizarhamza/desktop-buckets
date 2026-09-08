@@ -365,6 +365,11 @@ namespace DesktopBuckets.Services
 
                 if (args.Any(a => a.Equals("--settings", StringComparison.OrdinalIgnoreCase)))
                     OpenSettings();
+
+                // The installer asks the running instance to leave gracefully (state
+                // flushed, displaced icons restored) instead of taskkill /F.
+                if (args.Any(a => a.Equals("--quit", StringComparison.OrdinalIgnoreCase)))
+                    QuitApp();
             });
         }
 
