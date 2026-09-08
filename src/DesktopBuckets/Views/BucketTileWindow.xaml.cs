@@ -550,81 +550,46 @@ namespace DesktopBuckets.Views
 
         // ---- drag & drop into the bucket -------------------------
 
-        private void OnDrop(object? sender, DragEventArgs e)
+        /// <summary>Files/folders dropped on the tile are moved (Ctrl = copied) into the
+        /// bucket by the shell's own file engine on a worker thread: Explorer shows its
+        /// progress dialog for anything slow, handles junctions/symlinks and cross-volume
+        /// moves itself, and the operation is undoable with Ctrl+Z on the desktop.</summary>
+        private async void OnDrop(object? sender, DragEventArgs e)
         {
             if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
-            var paths = (string[])e.Data.GetData(DataFormats.FileDrop)!;
+            e.Handled = true;
+
             var dest = _vm.Bucket.FolderPath;
-            Directory.CreateDirectory(dest);
-
             bool copy = (e.KeyStates & DragDropKeyStates.ControlKey) != 0;
-            int moved = 0, copied = 0, failed = 0;
 
-            foreach (var src in paths)
+            var sources = new System.Collections.Generic.List<string>();
+            foreach (var src in (string[])e.Data.GetData(DataFormats.FileDrop)!)
             {
-                try
-                {
-                    bool isDir = Directory.Exists(src);
-                    if (!isDir && !File.Exists(src)) continue;
+                if (!Directory.Exists(src) && !File.Exists(src)) continue;
+                if (string.Equals(Path.GetDirectoryName(src), dest, StringComparison.OrdinalIgnoreCase))
+                    continue; // already in this bucket
+                if (Directory.Exists(src) && dest.StartsWith(src.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase))
+                    continue; // a folder can't be moved into itself
+                sources.Add(src);
+            }
+            if (sources.Count == 0) return;
 
-                    if (string.Equals(Path.GetDirectoryName(src), dest, StringComparison.OrdinalIgnoreCase))
-                        continue; // already in this bucket
-
-                    var target = UniqueName(Path.Combine(dest, Path.GetFileName(src)), isDir);
-
-                    if (isDir)
-                    {
-                        if (copy) CopyDirectory(src, target);
-                        else Directory.Move(src, target);
-                    }
-                    else
-                    {
-                        if (copy) File.Copy(src, target);
-                        else File.Move(src, target);
-                    }
-
-                    if (copy) copied++; else moved++;
-                }
-                catch (Exception ex)
-                {
-                    failed++;
-                    Log.Error($"Drop {(copy ? "copy" : "move")} failed for '{src}'", ex);
-                }
+            try
+            {
+                Directory.CreateDirectory(dest);
+                var r = await ShellFileOperations.TransferAsync(sources, dest, copy);
+                Log.Info($"Drop on '{_vm.Bucket.Name}': {sources.Count} item(s) {(copy ? "copy" : "move")} -> " +
+                         (r.Succeeded ? "ok" : r.Aborted ? "cancelled" : $"failed: {r.Error}"));
+                if (!r.Succeeded && !r.Aborted)
+                    Report($"Couldn't {(copy ? "copy" : "move")} into “{_vm.Bucket.Name}”: {r.Error}");
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Drop failed", ex);
+                Report($"Couldn't {(copy ? "copy" : "move")} into “{_vm.Bucket.Name}”: {ex.Message}");
             }
 
-            if (moved + copied + failed > 0)
-                Log.Info($"Drop on '{_vm.Bucket.Name}': {moved} moved, {copied} copied, {failed} failed.");
-            if (failed > 0)
-                Report(failed == 1
-                    ? $"One item couldn't be {(copy ? "copied" : "moved")} into “{_vm.Bucket.Name}”. See log.txt."
-                    : $"{failed} items couldn't be {(copy ? "copied" : "moved")} into “{_vm.Bucket.Name}”. See log.txt.");
-
-            _vm.Refresh();
-            e.Handled = true;
-        }
-
-        private static void CopyDirectory(string src, string dst)
-        {
-            Directory.CreateDirectory(dst);
-            foreach (var f in Directory.GetFiles(src))
-                File.Copy(f, Path.Combine(dst, Path.GetFileName(f)));
-            foreach (var d in Directory.GetDirectories(src))
-                CopyDirectory(d, Path.Combine(dst, Path.GetFileName(d)));
-        }
-
-        private static string UniqueName(string path, bool isDir = false)
-        {
-            bool Exists(string p) => isDir ? Directory.Exists(p) : File.Exists(p);
-            if (!Exists(path) && !(isDir ? File.Exists(path) : Directory.Exists(path))) return path;
-
-            var dir = Path.GetDirectoryName(path)!;
-            var name = isDir ? Path.GetFileName(path) : Path.GetFileNameWithoutExtension(path);
-            var ext = isDir ? string.Empty : Path.GetExtension(path);
-            int n = 2;
-            string candidate;
-            do { candidate = Path.Combine(dir, $"{name} ({n++}){ext}"); }
-            while (File.Exists(candidate) || Directory.Exists(candidate));
-            return candidate;
+            if (IsLoaded) _vm.Refresh();
         }
     }
 }

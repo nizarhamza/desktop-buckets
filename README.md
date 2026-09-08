@@ -210,7 +210,9 @@ src/DesktopBuckets/
   App.xaml(.cs)              Startup, single-instance, CLI, global exception guard
   app.manifest              asInvoker, per-monitor-v2 DPI
   Interop/
-    NativeMethods.cs         P/Invoke: SHGetFileInfo, SetWindowPos, SHFileOperation, …
+    NativeMethods.cs         P/Invoke: SHGetFileInfo, SetWindowPos, SendMessageTimeout, …
+    ShellFileOperations.cs   IFileOperation: drops (move/copy) + Recycle Bin, on an STA worker
+    Authenticode.cs          WinVerifyTrust + signer thumbprint for downloaded installers
     DesktopWindowHelper.cs   WS_EX_NOACTIVATE + hold-at-bottom Z-order
   Models/
     BucketConfig.cs          the .bucket.json shape
@@ -225,7 +227,7 @@ src/DesktopBuckets/
     ShellIntegration.cs      MSIX package register/unregister (+ legacy verb fallback)
     UpdateService.cs         GitHub-release update poller + installer hand-off
     SingleInstance.cs        mutex + named-pipe command forwarding
-    RecycleBin.cs            SHFileOperation wrapper
+    RecycleBin.cs            thin wrapper over ShellFileOperations.Recycle
     JsonUtil.cs / Log.cs
   ViewModels/
     BucketTileViewModel.cs   slots, grid dims, empty/overflow state, file actions

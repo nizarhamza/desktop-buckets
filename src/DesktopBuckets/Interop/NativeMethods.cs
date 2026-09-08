@@ -288,30 +288,8 @@ namespace DesktopBuckets.Interop
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool DestroyIcon(IntPtr hIcon);
 
-        // ---- Shell: file operations (Recycle Bin) ----------------------
-
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-        public struct SHFILEOPSTRUCT
-        {
-            public IntPtr hwnd;
-            public uint wFunc;
-            public string pFrom;
-            public string? pTo;
-            public ushort fFlags;
-            [MarshalAs(UnmanagedType.Bool)]
-            public bool fAnyOperationsAborted;
-            public IntPtr hNameMappings;
-            public string? lpszProgressTitle;
-        }
-
-        public const uint FO_DELETE = 0x0003;
-        public const ushort FOF_ALLOWUNDO = 0x0040;
-        public const ushort FOF_NOCONFIRMATION = 0x0010;
-        public const ushort FOF_NOERRORUI = 0x0400;
-        public const ushort FOF_SILENT = 0x0004;
-        public const ushort FOF_WANTNUKEWARNING = 0x4000;
-
-        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-        public static extern int SHFileOperation(ref SHFILEOPSTRUCT lpFileOp);
+        // File operations (move / copy / Recycle Bin) live in ShellFileOperations,
+        // on IFileOperation. SHFileOperation is deprecated and its managed struct
+        // layout was suspect on x64.
     }
 }
