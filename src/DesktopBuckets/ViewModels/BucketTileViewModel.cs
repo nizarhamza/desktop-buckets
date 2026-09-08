@@ -46,9 +46,7 @@ namespace DesktopBuckets.ViewModels
             var all = Bucket.EnumerateFiles();
             var visible = FileRankingService.SelectVisible(Bucket, all);
 
-            Slots.Clear();
-            foreach (var f in visible)
-                Slots.Add(new BucketFileViewModel(f));
+            ReconcileSlots(visible);
 
             TotalCount = all.Count;
             IsEmpty = Slots.Count == 0;
@@ -58,6 +56,29 @@ namespace DesktopBuckets.ViewModels
             Raise(nameof(HasOverflow));
 
             Refreshed?.Invoke();
+        }
+
+        /// <summary>Bring <see cref="Slots"/> in line with <paramref name="visible"/> by
+        /// position, replacing only entries that actually changed. Clear-and-re-add fired
+        /// a collection Reset on every watcher tick, which tears down and rebuilds every
+        /// item container (and flickers); a keyed diff keeps untouched slots' visuals.</summary>
+        private void ReconcileSlots(System.Collections.Generic.IReadOnlyList<BucketFile> visible)
+        {
+            for (int i = 0; i < visible.Count; i++)
+            {
+                var f = visible[i];
+                if (i < Slots.Count)
+                {
+                    if (Slots[i].Represents(f)) continue;
+                    Slots[i] = new BucketFileViewModel(f);   // Replace, not Reset
+                }
+                else
+                {
+                    Slots.Add(new BucketFileViewModel(f));
+                }
+            }
+            while (Slots.Count > visible.Count)
+                Slots.RemoveAt(Slots.Count - 1);
         }
 
         private void RecomputeGrid()

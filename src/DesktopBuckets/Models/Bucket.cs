@@ -67,51 +67,50 @@ namespace DesktopBuckets.Models
                 return Array.Empty<BucketFile>();
 
             var result = new List<BucketFile>();
-            IEnumerable<string> paths;
             try
             {
-                paths = Directory.EnumerateFiles(FolderPath, "*", SearchOption.TopDirectoryOnly);
-            }
-            catch (IOException)
-            {
-                return Array.Empty<BucketFile>();
-            }
-            catch (UnauthorizedAccessException)
-            {
-                return Array.Empty<BucketFile>();
-            }
-
-            foreach (var path in paths)
-            {
-                var name = Path.GetFileName(path);
-                if (name.StartsWith('.')) continue;                                   // .bucket.json, dotfiles
-                if (name.EndsWith(".bak", StringComparison.OrdinalIgnoreCase)) continue;
-                if (name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)) continue;
-                if (name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase)) continue;
-                if (name.Equals("Thumbs.db", StringComparison.OrdinalIgnoreCase)) continue;
-                try
+                // FileInfo objects from the directory scan already carry attributes and
+                // timestamps — one syscall per directory instead of three per file.
+                foreach (var fi in new DirectoryInfo(FolderPath).EnumerateFiles("*", SearchOption.TopDirectoryOnly))
                 {
-                    var attr = File.GetAttributes(path);
+                    var name = fi.Name;
+                    if (name.StartsWith('.')) continue;                                   // .bucket.json, dotfiles
+                    if (name.EndsWith(".bak", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (name.Equals("Thumbs.db", StringComparison.OrdinalIgnoreCase)) continue;
+
+                    FileAttributes attr;
+                    DateTime lastWrite;
+                    try
+                    {
+                        attr = fi.Attributes;
+                        lastWrite = fi.LastWriteTimeUtc;
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        attr = FileAttributes.Normal;
+                        lastWrite = DateTime.MinValue;
+                    }
                     if (attr.HasFlag(FileAttributes.Hidden) || attr.HasFlag(FileAttributes.System)) continue;
+
+                    var rel = name; // files are direct children, so relative path == name
+                    Config.LastOpenedUtc.TryGetValue(rel, out var opened);
+
+                    result.Add(new BucketFile
+                    {
+                        FullPath = fi.FullName,
+                        RelativePath = rel,
+                        Name = name,
+                        LastWriteUtc = lastWrite,
+                        LastOpenedViaTileUtc = opened,
+                        IsPinned = Config.Pinned.Contains(rel, StringComparer.OrdinalIgnoreCase),
+                    });
                 }
-                catch { /* include it */ }
-
-                DateTime lastWrite;
-                try { lastWrite = File.GetLastWriteTimeUtc(path); }
-                catch { lastWrite = DateTime.MinValue; }
-
-                var rel = name; // files are direct children, so relative path == name
-                Config.LastOpenedUtc.TryGetValue(rel, out var opened);
-
-                result.Add(new BucketFile
-                {
-                    FullPath = path,
-                    RelativePath = rel,
-                    Name = name,
-                    LastWriteUtc = lastWrite,
-                    LastOpenedViaTileUtc = opened,
-                    IsPinned = Config.Pinned.Contains(rel, StringComparer.OrdinalIgnoreCase),
-                });
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return Array.Empty<BucketFile>();
             }
             return result;
         }

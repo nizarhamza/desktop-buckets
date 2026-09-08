@@ -58,6 +58,17 @@ namespace DesktopBuckets.Services
                 Log.Error($"update.json points the updater at '{_config.Repo}' instead of '{UpdateConfig.DefaultRepo}'. " +
                           "Installers from there must still carry the pinned signature, but check that this is intended.");
 
+            // A token pasted in plaintext is re-saved DPAPI-protected right away.
+            try
+            {
+                if (_config.ProtectToken())
+                {
+                    JsonUtil.Write(ConfigPath, _config);
+                    Log.Info("update.json: GitHub token is now stored encrypted (DPAPI, current user).");
+                }
+            }
+            catch (Exception ex) { Log.Error("Protecting the GitHub token failed", ex); }
+
             var channel = NormalizeChannel(_config.Channel);
             if (_state.LastChannel == null)
             {
@@ -216,9 +227,10 @@ namespace DesktopBuckets.Services
             var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
             http.DefaultRequestHeaders.UserAgent.ParseAdd("DesktopBuckets-Updater/1.0");
             http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
-            if (!string.IsNullOrWhiteSpace(_config.Token))
+            var token = _config.ResolveToken();
+            if (!string.IsNullOrWhiteSpace(token))
                 http.DefaultRequestHeaders.Authorization =
-                    new AuthenticationHeaderValue("Bearer", _config.Token!.Trim());
+                    new AuthenticationHeaderValue("Bearer", token);
             return http;
         }
 

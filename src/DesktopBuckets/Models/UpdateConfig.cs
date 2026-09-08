@@ -29,8 +29,48 @@ namespace DesktopBuckets.Models
         /// <c>stable</c> = the latest tagged release.</summary>
         public string Channel { get; set; } = "nightly";
 
-        /// <summary>Optional GitHub token (needed only for a private repo).</summary>
+        /// <summary>Optional GitHub token (needed only for a private repo). On disk it is
+        /// kept DPAPI-encrypted for the current user (<c>dpapi:&lt;base64&gt;</c>); a
+        /// plaintext value pasted into update.json is encrypted on the next start, so a
+        /// stray profile backup doesn't carry a live credential. Use
+        /// <see cref="ResolveToken"/> to get the usable value.</summary>
         public string? Token { get; set; }
+
+        private const string DpapiPrefix = "dpapi:";
+
+        [JsonIgnore]
+        public bool TokenIsProtected => Token?.StartsWith(DpapiPrefix, StringComparison.Ordinal) == true;
+
+        /// <summary>The plaintext token, or null when unset / undecryptable (a token
+        /// protected on another machine or account can't be recovered here).</summary>
+        public string? ResolveToken()
+        {
+            if (string.IsNullOrWhiteSpace(Token)) return null;
+            if (!TokenIsProtected) return Token.Trim();
+            try
+            {
+                var bytes = System.Security.Cryptography.ProtectedData.Unprotect(
+                    Convert.FromBase64String(Token.Substring(DpapiPrefix.Length)),
+                    null, System.Security.Cryptography.DataProtectionScope.CurrentUser);
+                return System.Text.Encoding.UTF8.GetString(bytes);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>Replace a plaintext <see cref="Token"/> with its protected form.
+        /// Returns true when the value changed (caller should persist).</summary>
+        public bool ProtectToken()
+        {
+            if (string.IsNullOrWhiteSpace(Token) || TokenIsProtected) return false;
+            var bytes = System.Security.Cryptography.ProtectedData.Protect(
+                System.Text.Encoding.UTF8.GetBytes(Token.Trim()),
+                null, System.Security.Cryptography.DataProtectionScope.CurrentUser);
+            Token = DpapiPrefix + Convert.ToBase64String(bytes);
+            return true;
+        }
 
         public double CheckIntervalHours { get; set; } = 6;
 

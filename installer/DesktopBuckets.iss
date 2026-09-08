@@ -63,7 +63,7 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 ; payload when it was built: DesktopBuckets.ShellExt.dll, DesktopBuckets.Package.msix,
 ; DesktopBuckets.cer. The app enables/disables it on demand (one elevation prompt).
 Source: "{#PublishDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#PublishDir}\*";               DestDir: "{app}"; Excludes: "{#MyAppExeName}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#PublishDir}\*";               DestDir: "{app}"; Excludes: "{#MyAppExeName},*.pdb"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}";            Filename: "{app}\{#MyAppExeName}"

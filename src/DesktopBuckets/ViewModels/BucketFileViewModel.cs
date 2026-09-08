@@ -20,6 +20,14 @@ namespace DesktopBuckets.ViewModels
         public string RelativePath => File.RelativePath;
         public bool IsPinned => File.IsPinned;
 
+        /// <summary>True when this slot already shows <paramref name="other"/> in every
+        /// way the tile renders (path, name, pin state, and the icon's source file).</summary>
+        public bool Represents(BucketFile other) =>
+            string.Equals(File.FullPath, other.FullPath, System.StringComparison.OrdinalIgnoreCase)
+            && File.Name == other.Name
+            && File.IsPinned == other.IsPinned
+            && File.LastWriteUtc == other.LastWriteUtc; // a rewritten file may have a new icon (e.g. .exe/.ico)
+
         private ImageSource? _icon;
         public ImageSource? Icon
         {

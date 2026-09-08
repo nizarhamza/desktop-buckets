@@ -61,14 +61,23 @@ jobs:
             echo "prerelease=true"       >> "$GITHUB_OUTPUT"
           fi
 
+      # Portable PDBs are produced so a stack trace in log.txt has line numbers; they
+      # are kept as a workflow artifact (below) and excluded from the installer.
       - name: Publish (self-contained win-x64)
         shell: bash
         run: |
           dotnet publish src/DesktopBuckets/DesktopBuckets.csproj \
             -c Release -r win-x64 --self-contained true \
-            -p:DebugType=none -p:DebugSymbols=false \
+            -p:DebugType=portable \
             -p:Version=${{ steps.ver.outputs.version }} \
             -o publish
+
+      - name: Upload symbols
+        uses: actions/upload-artifact@v4
+        with:
+          name: DesktopBuckets-symbols-${{ steps.ver.outputs.version }}
+          path: publish/*.pdb
+          if-no-files-found: warn
 
       - name: Set up MSVC
         uses: ilammy/msvc-dev-cmd@v1
