@@ -28,6 +28,20 @@ namespace DesktopBuckets
                 Shutdown();
                 return;
             }
+            // Diagnostic: what the snapping code sees (grid, icons, tile rects) -> grid-dump.txt
+            if (e.Args.Any(a => a.Equals("--dump-grid", StringComparison.OrdinalIgnoreCase)))
+            {
+                try
+                {
+                    var text = Interop.DesktopShell.DescribeGrid() + Interop.DesktopShell.DescribeTileWindows();
+                    var path = System.IO.Path.Combine(BucketStore.AppDataDir, "grid-dump.txt");
+                    System.IO.File.WriteAllText(path, text);
+                    Services.Log.Info($"--dump-grid written to {path}");
+                }
+                catch (Exception ex) { Services.Log.Error("--dump-grid failed", ex); }
+                Shutdown();
+                return;
+            }
 
             _single = new SingleInstance();
             if (!_single.IsPrimary)

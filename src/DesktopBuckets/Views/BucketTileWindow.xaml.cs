@@ -21,8 +21,11 @@ namespace DesktopBuckets.Views
         private readonly int _cascadeIndex;
         private bool _suppressZOrder;
 
-        // manual drag + live desktop-icon displacement
+        // manual drag; desktop icons are pushed aside only once the tile RESTS in a
+        // cell for DwellBeforeMakeSpace (or is dropped), never while it is moving
         private readonly DesktopShell.DragDisplacement _displaced = new();
+        private static readonly TimeSpan DwellBeforeMakeSpace = TimeSpan.FromSeconds(1);
+        private readonly DispatcherTimer _dwellTimer;
         private bool _dragging;
         private Interop.NativeMethods.POINT _dragMouseStartPx;
         private Point _dragWinStart;
@@ -63,6 +66,16 @@ namespace DesktopBuckets.Views
             {
                 _savePositionTimer.Stop();
                 _vm.Bucket.SetPosition(Left, Top);
+            };
+
+            _dwellTimer = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher)
+            {
+                Interval = DwellBeforeMakeSpace,
+            };
+            _dwellTimer.Tick += (_, _) =>
+            {
+                _dwellTimer.Stop();
+                if (_dragging) MakeSpaceUnderTile();
             };
 
             SourceInitialized += OnSourceInitialized;
@@ -117,22 +130,23 @@ namespace DesktopBuckets.Views
             // but the visible window is inset by a margin and centred in that block — so
             // the gap to the surrounding icons is equal on all four sides, the way an icon
             // sits centred in its own cell. _gx/_gy are that inset (device px).
+            // The window fills its whole-cell block exactly — edges land ON the desktop
+            // icon-cell lines (matches the cell boxes shown when icons are selected). The
+            // snap-drift fix (modal-phase origin) is what makes this line up.
+            _gx = _gy = 0;
             if (cell.Width > 12 && cell.Height > 12)
             {
-                _gx = cell.Width * 0.14;
-                _gy = cell.Height * 0.14;
                 double contentPxW = contentWdip * sxx, contentPxH = contentHdip * syy;
-                int cols = Math.Max(1, (int)Math.Ceiling((contentPxW + 2 * _gx) / cell.Width - 0.12));
-                int rows = Math.Max(1, (int)Math.Ceiling((contentPxH + 2 * _gy) / cell.Height - 0.12));
+                int cols = Math.Max(1, (int)Math.Ceiling(contentPxW / cell.Width - 0.12));
+                int rows = Math.Max(1, (int)Math.Ceiling(contentPxH / cell.Height - 0.12));
                 _blockW = cols * cell.Width;
                 _blockH = rows * cell.Height;
-                Width = (_blockW - 2 * _gx) / sxx;
-                Height = (_blockH - 2 * _gy) / syy;
+                Width = _blockW / sxx;
+                Height = _blockH / syy;
             }
             else
             {
                 _blockW = contentWdip * sxx; _blockH = contentHdip * syy;
-                _gx = _gy = 0;
                 Width = contentWdip;
                 Height = contentHdip;
             }
@@ -274,6 +288,7 @@ namespace DesktopBuckets.Views
         {
             _zOrderTimer.Stop();
             _savePositionTimer.Stop();
+            _dwellTimer.Stop();
             try { DesktopShell.RestoreDisplacement(_displaced, this); }
             catch (Exception ex) { Log.Error("RestoreDisplacement on teardown failed", ex); }
             Close();
@@ -324,9 +339,27 @@ namespace DesktopBuckets.Views
                 var cell = _dragGrid.CellOf(footprint.TopLeft);
                 if (cell == _lastDragCell) return;
                 _lastDragCell = cell;
-                DesktopShell.UpdateDragDisplace(_displaced, footprint);
+
+                // Moved to another cell: anything pushed aside for the previous spot
+                // flows home, and the dwell clock restarts. Icons are only pushed once
+                // the tile has rested here for a moment.
+                DesktopShell.RestoreDisplacement(_displaced, this);
+                _dwellTimer.Stop();
+                _dwellTimer.Start();
             }
-            catch (Exception ex) { Log.Error("drag displace failed", ex); }
+            catch (Exception ex) { Log.Error("drag tracking failed", ex); }
+        }
+
+        /// <summary>Push the desktop icons under the tile's (snapped) footprint aside.</summary>
+        private void MakeSpaceUnderTile()
+        {
+            if (!_dragGridValid) return;
+            try
+            {
+                var fp = SnappedBlockPx(_dragGrid);
+                if (!fp.IsEmpty) DesktopShell.MakeSpace(_displaced, fp);
+            }
+            catch (Exception ex) { Log.Error("make space failed", ex); }
         }
 
         private void OnDragMouseUp(object? sender, MouseButtonEventArgs e)
@@ -349,14 +382,15 @@ namespace DesktopBuckets.Views
 
         private void FinishDrag()
         {
+            _dwellTimer.Stop();
             bool moved = Math.Abs(Left - _dragWinStart.X) > 6 || Math.Abs(Top - _dragWinStart.Y) > 6;
             if (moved && _vm.Bucket.Config.SnapToGrid && !_vm.Bucket.Config.Locked && _dragGridValid)
             {
                 try
                 {
                     SnapInnerBlock(_dragGrid);
-                    var fp = SnappedBlockPx(_dragGrid);
-                    if (!fp.IsEmpty) DesktopShell.UpdateDragDisplace(_displaced, fp);
+                    // Dropped: the tile stays here, so make room right away.
+                    MakeSpaceUnderTile();
                 }
                 catch (Exception ex) { Log.Error("drop snap failed", ex); }
             }
@@ -376,9 +410,9 @@ namespace DesktopBuckets.Views
                 SnapInnerBlock(grid);
                 if (claimSpace)
                 {
-                    DesktopShell.BeginDrag(_displaced);
-                    var fp = SnappedBlockPx(grid);
-                    if (!fp.IsEmpty) DesktopShell.UpdateDragDisplace(_displaced, fp);
+                    _dragGrid = DesktopShell.BeginDrag(_displaced);
+                    _dragGridValid = _dragGrid.Valid;
+                    MakeSpaceUnderTile();
                 }
             }
             catch (Exception ex) { Log.Error("Grid snap failed", ex); }

@@ -100,6 +100,32 @@ namespace DesktopBuckets.Interop
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         public static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
 
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
+
+        // ---- Monitors (the desktop icon grid is anchored per monitor work area) ----
+
+        public delegate bool MonitorEnumProc(IntPtr hMonitor, IntPtr hdcMonitor, ref RECT lprcMonitor, IntPtr dwData);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr lprcClip, MonitorEnumProc lpfnEnum, IntPtr dwData);
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MONITORINFO
+        {
+            public int cbSize;
+            public RECT rcMonitor;
+            public RECT rcWork;
+            public uint dwFlags;
+        }
+
+        public const uint MONITORINFOF_PRIMARY = 1;
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+
         // ---- Desktop icon grid spacing (pixels) -----------------------
 
         public const uint SPI_ICONHORIZONTALSPACING = 0x000D;
@@ -118,6 +144,7 @@ namespace DesktopBuckets.Interop
         public const uint LVM_GETITEMCOUNT = LVM_FIRST + 4;        // 0x1004
         public const uint LVM_GETITEMPOSITION = LVM_FIRST + 16;    // 0x1010
         public const uint LVM_SETITEMPOSITION32 = LVM_FIRST + 49;  // 0x1031
+        public const uint LVM_GETITEMSPACING = LVM_FIRST + 51;     // 0x1033: LOWORD=cx, HIWORD=cy
 
         public const int GWL_STYLE = -16;
         public const int LVS_AUTOARRANGE = 0x0100;

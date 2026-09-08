@@ -8,7 +8,9 @@ namespace DesktopBuckets.Interop
     /// <summary>
     /// Slides desktop icons between grid cells instead of teleporting them. Keeps one
     /// explorer.exe handle open while animations are in flight and drops it when idle.
-    /// All calls happen on the UI thread.
+    /// A move requested for an icon that is already moving continues from wherever it
+    /// is right now, so re-targeting mid-flight stays fluid. All calls happen on the UI
+    /// thread.
     /// </summary>
     internal static class IconAnimator
     {
@@ -17,9 +19,28 @@ namespace DesktopBuckets.Interop
             public IntPtr ListView;
             public int Index;
             public double FromX, FromY, ToX, ToY;   // listview pixels
-            public DateTime Start;
+            public DateTime Start;                  // after any delay
             public double DurationMs;
+            public bool Started;
+
+            public double Progress(DateTime now)
+            {
+                double p = (now - Start).TotalMilliseconds / DurationMs;
+                return p < 0 ? 0 : p > 1 ? 1 : p;
+            }
+
+            // ease-in-out cubic: gentle start, gentle landing (what phone home screens use)
+            public static double Ease(double p) =>
+                p < 0.5 ? 4 * p * p * p : 1 - Math.Pow(-2 * p + 2, 3) / 2;
+
+            public Point At(DateTime now)
+            {
+                double e = Ease(Progress(now));
+                return new Point(FromX + (ToX - FromX) * e, FromY + (ToY - FromY) * e);
+            }
         }
+
+        private const double DefaultDurationMs = 260;
 
         private static readonly Dictionary<int, Tween> _tweens = new();
         private static DispatcherTimer? _timer;
@@ -27,19 +48,26 @@ namespace DesktopBuckets.Interop
         private static uint _pid;
         private static DateTime _lastActivity;
 
-        /// <summary>Animate an icon from one listview-client-px point to another.</summary>
-        public static void Move(IntPtr listView, int index, Point fromClientPx, Point toClientPx)
+        /// <summary>Animate an icon from one listview-client-px point to another. An icon
+        /// already in flight starts from its current interpolated position instead.
+        /// <paramref name="delayMs"/> staggers a group so a ripple reads as a ripple.</summary>
+        public static void Move(IntPtr listView, int index, Point fromClientPx, Point toClientPx, int delayMs = 0)
         {
+            var now = DateTime.UtcNow;
+            var from = fromClientPx;
+            if (_tweens.TryGetValue(index, out var inFlight) && inFlight.Started && inFlight.Progress(now) < 1)
+                from = inFlight.At(now);
+
             _tweens[index] = new Tween
             {
                 ListView = listView,
                 Index = index,
-                FromX = fromClientPx.X, FromY = fromClientPx.Y,
+                FromX = from.X, FromY = from.Y,
                 ToX = toClientPx.X, ToY = toClientPx.Y,
-                Start = DateTime.UtcNow,
-                DurationMs = 140,
+                Start = now.AddMilliseconds(Math.Max(0, delayMs)),
+                DurationMs = DefaultDurationMs,
             };
-            _lastActivity = DateTime.UtcNow;
+            _lastActivity = now;
             EnsureRunning();
         }
 
@@ -68,26 +96,26 @@ namespace DesktopBuckets.Interop
 
                 if (!EnsureHandle()) { _tweens.Clear(); return; }
 
+                var now = DateTime.UtcNow;
                 var done = new List<int>();
                 var buf = new byte[8];
 
                 foreach (var t in _tweens.Values)
                 {
-                    double p = (DateTime.UtcNow - t.Start).TotalMilliseconds / t.DurationMs;
-                    if (p >= 1) { p = 1; done.Add(t.Index); }
-                    double e2 = 1 - Math.Pow(1 - p, 3); // ease-out cubic
+                    if (now < t.Start) continue;          // still in its stagger delay
+                    t.Started = true;
+                    double p = t.Progress(now);
+                    if (p >= 1) done.Add(t.Index);
+                    var at = t.At(now);
 
-                    int x = (int)Math.Round(t.FromX + (t.ToX - t.FromX) * e2);
-                    int y = (int)Math.Round(t.FromY + (t.ToY - t.FromY) * e2);
-
-                    BitConverter.GetBytes(x).CopyTo(buf, 0);
-                    BitConverter.GetBytes(y).CopyTo(buf, 4);
+                    BitConverter.GetBytes((int)Math.Round(at.X)).CopyTo(buf, 0);
+                    BitConverter.GetBytes((int)Math.Round(at.Y)).CopyTo(buf, 4);
                     if (NativeMethods.WriteProcessMemory(_proc, _remote, buf, (IntPtr)8, out _))
                         NativeMethods.TrySendMessage(t.ListView, NativeMethods.LVM_SETITEMPOSITION32, (IntPtr)t.Index, _remote, out _);
                 }
 
                 foreach (var i in done) _tweens.Remove(i);
-                _lastActivity = DateTime.UtcNow;
+                _lastActivity = now;
             }
             catch (Exception ex)
             {
