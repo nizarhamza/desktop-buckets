@@ -1,4 +1,5 @@
 using System.Windows;
+using DesktopBuckets.Interop;
 
 namespace DesktopBuckets.Views
 {
@@ -9,6 +10,7 @@ namespace DesktopBuckets.Views
         public InputDialog(string title, string prompt, string initial = "", string okLabel = "Create")
         {
             InitializeComponent();
+            WindowChromeHelper.Attach(this);
             Title = title;
             PromptText.Text = prompt;
             Input.Text = initial;

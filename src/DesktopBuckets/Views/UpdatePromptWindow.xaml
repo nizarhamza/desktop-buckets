@@ -3,13 +3,16 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Desktop Buckets — Update"
         SizeToContent="Height"
-        Width="440"
+        Width="460"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
         ShowInTaskbar="True"
         WindowStyle="SingleBorderWindow"
-        Background="#FF23232A">
-    <Grid Margin="20">
+        FontFamily="Segoe UI Variable Text, Segoe UI"
+        TextOptions.TextFormattingMode="Ideal"
+        UseLayoutRounding="True"
+        Background="{DynamicResource App.WindowBackground}">
+    <Grid Margin="22">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -20,29 +23,29 @@
 
         <TextBlock x:Name="HeadlineText"
                    Grid.Row="0"
-                   Foreground="White"
-                   FontSize="16"
+                   Foreground="{DynamicResource App.TextPrimary}"
+                   FontSize="17"
                    FontWeight="SemiBold"
                    TextWrapping="Wrap"
                    Text="An update is available" />
 
         <TextBlock x:Name="VersionText"
                    Grid.Row="1"
-                   Foreground="#FFB9B9C3"
+                   Foreground="{DynamicResource App.TextSecondary}"
                    FontSize="12"
                    Margin="0,4,0,12"
                    Text="0.0.0 → 0.0.0" />
 
         <Border Grid.Row="2"
-                Background="#FF1B1B20"
-                BorderBrush="#FF3A3A44"
+                Background="{DynamicResource App.SurfaceAlt}"
+                BorderBrush="{DynamicResource App.SurfaceBorder}"
                 BorderThickness="1"
-                CornerRadius="4"
-                Padding="10"
+                CornerRadius="6"
+                Padding="12"
                 MaxHeight="220">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <TextBlock x:Name="NotesText"
-                           Foreground="#FFD5D5DE"
+                           Foreground="{DynamicResource App.TextSecondary}"
                            FontSize="12"
                            TextWrapping="Wrap"
                            Text="" />
@@ -52,10 +55,13 @@
         <StackPanel Grid.Row="3" Margin="0,12,0,0">
             <ProgressBar x:Name="DownloadBar"
                          Height="6"
+                         Foreground="{DynamicResource App.Accent}"
+                         Background="{DynamicResource App.ControlFill}"
+                         BorderThickness="0"
                          Minimum="0" Maximum="1"
                          Visibility="Collapsed" />
             <TextBlock x:Name="StatusText"
-                       Foreground="#FFB9B9C3"
+                       Foreground="{DynamicResource App.TextSecondary}"
                        FontSize="11"
                        Margin="0,6,0,0"
                        Visibility="Collapsed"
@@ -65,26 +71,26 @@
         <StackPanel Grid.Row="4"
                     Orientation="Horizontal"
                     HorizontalAlignment="Right"
-                    Margin="0,16,0,0">
+                    Margin="0,18,0,0">
             <Button x:Name="CancelButton"
                     Content="Cancel download"
-                    Height="28" Padding="10,0"
+                    Style="{StaticResource App.Button}"
                     Margin="0,0,8,0"
                     Visibility="Collapsed"
                     Click="Cancel_Click" />
             <Button x:Name="SkipButton"
                     Content="Skip this version"
-                    Height="28" Padding="10,0"
+                    Style="{StaticResource App.Button}"
                     Margin="0,0,8,0"
                     Click="Skip_Click" />
             <Button x:Name="LaterButton"
                     Content="Remind me later"
-                    Height="28" Padding="10,0"
+                    Style="{StaticResource App.Button}"
                     Margin="0,0,8,0"
                     Click="Later_Click" />
             <Button x:Name="UpdateButton"
                     Content="Update now"
-                    Height="28" Padding="14,0"
+                    Style="{StaticResource App.AccentButton}"
                     IsDefault="True"
                     Click="Update_Click" />
         </StackPanel>

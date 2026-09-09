@@ -78,8 +78,10 @@
                                                  Margin="0,-2,-2,0"
                                                  Visibility="{Binding IsPinned, Converter={StaticResource BoolVis}}" />
                                     </Grid>
+                                    <!-- No Foreground here on purpose: it inherits from
+                                         SlotsHost.Foreground, which ApplyAppearance() sets
+                                         per light/dark theme. -->
                                     <TextBlock Text="{Binding Name}"
-                                               Foreground="#FFECECEC"
                                                FontSize="9"
                                                TextAlignment="Center"
                                                TextWrapping="Wrap"
@@ -93,7 +95,8 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <TextBlock Text="Empty &#8212; drop files or folders here"
+                <TextBlock x:Name="EmptyHint"
+                           Text="Empty &#8212; drop files or folders here"
                            Foreground="#80FFFFFF"
                            FontSize="11"
                            Margin="18"

@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Windows;
+using DesktopBuckets.Interop;
 using DesktopBuckets.Models;
 using DesktopBuckets.Services;
 
@@ -18,6 +19,7 @@ namespace DesktopBuckets.Views
             _service = service;
             _info = info;
             InitializeComponent();
+            WindowChromeHelper.Attach(this);
 
             VersionText.Text = $"{UpdateService.FormatVersion(service.CurrentVersion)}  →  {info.DisplayVersion}";
             if (info.IsDowngrade)

@@ -2,125 +2,331 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Desktop Buckets — Settings"
-        Width="440"
-        SizeToContent="Height"
+        Width="720" Height="600"
+        MinWidth="640" MinHeight="480"
         WindowStartupLocation="CenterScreen"
-        ResizeMode="NoResize"
+        ResizeMode="CanResize"
         ShowInTaskbar="True"
         WindowStyle="SingleBorderWindow"
-        Background="#FF23232A">
+        FontFamily="Segoe UI Variable Text, Segoe UI"
+        TextOptions.TextFormattingMode="Ideal"
+        UseLayoutRounding="True"
+        Background="{DynamicResource App.WindowBackground}">
 
     <Window.Resources>
         <Style TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#FFECECEC" />
-            <Setter Property="FontSize" Value="12" />
-        </Style>
-        <Style x:Key="SectionHeader" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#FF8FA8FF" />
-            <Setter Property="FontSize" Value="11" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Margin" Value="0,0,0,8" />
-        </Style>
-        <Style TargetType="CheckBox">
-            <Setter Property="Foreground" Value="#FFECECEC" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Margin" Value="0,5,0,0" />
-        </Style>
-        <Style TargetType="ComboBox">
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Height" Value="24" />
-            <Setter Property="Width" Value="150" />
-        </Style>
-        <Style TargetType="Button">
-            <Setter Property="Height" Value="26" />
-            <Setter Property="Padding" Value="12,0" />
+            <Setter Property="Foreground" Value="{DynamicResource App.TextPrimary}" />
+            <Setter Property="FontSize" Value="12.5" />
         </Style>
     </Window.Resources>
 
-    <StackPanel Margin="22,18,22,18">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="196" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
 
-        <TextBlock Text="Desktop Buckets" FontSize="16" FontWeight="SemiBold" />
-        <TextBlock x:Name="VersionText" Text="version 0.0.0" Foreground="#FF9A9AA6" Margin="0,2,0,0" />
+        <!-- ============ sidebar ============ -->
+        <Border Grid.Column="0" Background="{DynamicResource App.Sidebar}"
+                BorderBrush="{DynamicResource App.Divider}" BorderThickness="0,0,1,0">
+            <StackPanel Margin="0,14,0,0">
+                <RadioButton x:Name="NavGeneral" GroupName="Nav" Content="General"
+                             Tag="&#xE713;" Style="{StaticResource App.NavItem}"
+                             IsChecked="True" Checked="Nav_Changed" />
+                <RadioButton x:Name="NavAppearance" GroupName="Nav" Content="Appearance"
+                             Tag="&#xE771;" Style="{StaticResource App.NavItem}"
+                             Checked="Nav_Changed" />
+                <RadioButton x:Name="NavAbout" GroupName="Nav" Content="About"
+                             Tag="&#xE946;" Style="{StaticResource App.NavItem}"
+                             Checked="Nav_Changed" />
+            </StackPanel>
+        </Border>
 
-        <!-- Updates -->
-        <TextBlock Text="UPDATES" Style="{StaticResource SectionHeader}" Margin="0,20,0,8" />
-
-        <CheckBox x:Name="AutoUpdateCheck"
-                  Content="Check for updates automatically"
-                  Checked="AutoUpdate_Changed" Unchecked="AutoUpdate_Changed" />
-
-        <CheckBox x:Name="StartupCheck"
-                  Content="Also check right after the app starts"
-                  Margin="20,5,0,0"
-                  Checked="AutoUpdate_Changed" Unchecked="AutoUpdate_Changed" />
-
-        <Grid Margin="0,12,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
+        <!-- ============ content ============ -->
+        <Grid Grid.Column="1">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="Channel" VerticalAlignment="Center" Margin="0,0,12,0" />
-            <ComboBox x:Name="ChannelCombo" Grid.Row="0" Grid.Column="1" HorizontalAlignment="Left"
-                      SelectionChanged="AutoUpdate_Changed">
-                <ComboBoxItem Content="Stable" Tag="stable" />
-                <ComboBoxItem Content="Nightly (latest build)" Tag="nightly" />
-            </ComboBox>
+            <!-- header -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="28,22,28,10">
+                <Viewbox Width="34" Height="34" VerticalAlignment="Center">
+                    <UniformGrid Rows="2" Columns="2" Width="32" Height="32">
+                        <Border Margin="1.5" CornerRadius="3" Background="#4C8BF5" />
+                        <Border Margin="1.5" CornerRadius="3" Background="#3FBF6E" />
+                        <Border Margin="1.5" CornerRadius="3" Background="#22C7DE" />
+                        <Border Margin="1.5" CornerRadius="3" Background="#F2B138" />
+                    </UniformGrid>
+                </Viewbox>
+                <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="Desktop Buckets" Style="{StaticResource App.PageTitle}" />
+                    <TextBlock x:Name="VersionText" Text="version 0.0.0"
+                               Style="{StaticResource App.Caption}" Margin="0,1,0,0" />
+                </StackPanel>
+            </StackPanel>
 
-            <TextBlock Grid.Row="1" Grid.Column="0" Text="Check every" VerticalAlignment="Center" Margin="0,8,12,0" />
-            <ComboBox x:Name="IntervalCombo" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Left" Margin="0,8,0,0"
-                      SelectionChanged="AutoUpdate_Changed">
-                <ComboBoxItem Content="1 hour" Tag="1" />
-                <ComboBoxItem Content="6 hours" Tag="6" />
-                <ComboBoxItem Content="24 hours" Tag="24" />
-            </ComboBox>
+            <!-- page host -->
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled" Padding="28,4,22,10">
+                <Grid>
+
+                    <!-- === GENERAL === -->
+                    <StackPanel x:Name="GeneralPage">
+
+                        <Border Style="{StaticResource App.Card}" Margin="0,0,0,14">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,3">
+                                    <TextBlock Text="&#xE895;" FontFamily="{StaticResource App.IconFont}"
+                                               FontSize="14" Foreground="{DynamicResource App.TextSecondary}"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Text="Updates" Style="{StaticResource App.CardTitle}" Margin="8,0,0,0" />
+                                </StackPanel>
+                                <TextBlock Text="Keep the app up to date for the latest features and fixes."
+                                           Style="{StaticResource App.Caption}" Margin="0,0,0,12" />
+
+                                <CheckBox x:Name="AutoUpdateCheck" Style="{StaticResource App.ToggleSwitch}"
+                                          Content="Check for updates automatically"
+                                          Checked="AutoUpdate_Changed" Unchecked="AutoUpdate_Changed" />
+                                <CheckBox x:Name="StartupCheck" Style="{StaticResource App.ToggleSwitch}"
+                                          Content="Also check right after the app starts" Margin="0,10,0,0"
+                                          Checked="AutoUpdate_Changed" Unchecked="AutoUpdate_Changed" />
+
+                                <Grid Margin="0,16,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="Channel" Style="{StaticResource App.Caption}" Margin="0,0,0,4" />
+                                        <ComboBox x:Name="ChannelCombo" Style="{StaticResource App.Combo}"
+                                                  Width="150" SelectionChanged="AutoUpdate_Changed">
+                                            <ComboBoxItem Content="Stable" Tag="stable" />
+                                            <ComboBoxItem Content="Nightly (latest build)" Tag="nightly" />
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Margin="16,0,0,0">
+                                        <TextBlock Text="Check every" Style="{StaticResource App.Caption}" Margin="0,0,0,4" />
+                                        <ComboBox x:Name="IntervalCombo" Style="{StaticResource App.Combo}"
+                                                  Width="130" SelectionChanged="AutoUpdate_Changed">
+                                            <ComboBoxItem Content="1 hour" Tag="1" />
+                                            <ComboBoxItem Content="6 hours" Tag="6" />
+                                            <ComboBoxItem Content="24 hours" Tag="24" />
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <Button x:Name="CheckNowButton" Grid.Column="2" Content="Check now"
+                                            Style="{StaticResource App.AccentButton}" MinWidth="104"
+                                            HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                            Click="CheckNow_Click" />
+                                </Grid>
+
+                                <TextBlock x:Name="CheckStatusText" Text="" Style="{StaticResource App.Caption}"
+                                           Margin="0,10,0,0" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource App.Card}" Margin="0,0,0,14">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,3">
+                                    <TextBlock Text="&#xE7E8;" FontFamily="{StaticResource App.IconFont}"
+                                               FontSize="14" Foreground="{DynamicResource App.TextSecondary}"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Text="Startup &amp; desktop" Style="{StaticResource App.CardTitle}" Margin="8,0,0,0" />
+                                </StackPanel>
+
+                                <CheckBox x:Name="RunAtSignInCheck" Style="{StaticResource App.ToggleSwitch}"
+                                          Content="Start Desktop Buckets when I sign in" Margin="0,8,0,0"
+                                          Checked="RunAtSignIn_Changed" Unchecked="RunAtSignIn_Changed" />
+                                <CheckBox x:Name="ShellMenuCheck" Style="{StaticResource App.ToggleSwitch}"
+                                          Content="Show “New Bucket” on the desktop right-click menu" Margin="0,10,0,0"
+                                          Checked="ShellMenu_Changed" Unchecked="ShellMenu_Changed" />
+                                <TextBlock Text="Turning this on asks for approval once."
+                                           Style="{StaticResource App.Caption}" Margin="50,4,0,0" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource App.Card}">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,3">
+                                    <TextBlock Text="&#xE8B7;" FontFamily="{StaticResource App.IconFont}"
+                                               FontSize="14" Foreground="{DynamicResource App.TextSecondary}"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Text="Data" Style="{StaticResource App.CardTitle}" Margin="8,0,0,0" />
+                                </StackPanel>
+                                <TextBlock Text="Settings, the bucket list and log.txt live in:"
+                                           Style="{StaticResource App.Caption}" Margin="0,0,0,8" />
+                                <Border Background="{DynamicResource App.SurfaceAlt}"
+                                        BorderBrush="{DynamicResource App.ControlBorder}" BorderThickness="1"
+                                        CornerRadius="5" Padding="10,7">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="DataDirText" Grid.Column="0" Text=""
+                                                   FontSize="11.5" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource App.TextSecondary}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <Button Grid.Column="1" Content="Open" Style="{StaticResource App.Button}"
+                                                Height="26" MinWidth="64" Margin="10,0,0,0"
+                                                Click="OpenDataDir_Click" />
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- === APPEARANCE === -->
+                    <StackPanel x:Name="AppearancePage" Visibility="Collapsed">
+
+                        <Border Style="{StaticResource App.Card}" Margin="0,0,0,14">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,3">
+                                    <TextBlock Text="&#xE771;" FontFamily="{StaticResource App.IconFont}"
+                                               FontSize="14" Foreground="{DynamicResource App.TextSecondary}"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Text="Theme" Style="{StaticResource App.CardTitle}" Margin="8,0,0,0" />
+                                </StackPanel>
+                                <TextBlock Text="System follows your Windows app mode and changes with it."
+                                           Style="{StaticResource App.Caption}" Margin="0,0,0,12" />
+                                <StackPanel Orientation="Horizontal">
+                                    <RadioButton x:Name="ThemeSystem" GroupName="Theme" Content="System"
+                                                 Style="{StaticResource App.SegItem}" Checked="Theme_Changed" />
+                                    <RadioButton x:Name="ThemeLight" GroupName="Theme" Content="Light"
+                                                 Style="{StaticResource App.SegItem}" Checked="Theme_Changed" />
+                                    <RadioButton x:Name="ThemeDark" GroupName="Theme" Content="Dark"
+                                                 Style="{StaticResource App.SegItem}" Checked="Theme_Changed" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource App.Card}" Margin="0,0,0,14">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,3">
+                                    <TextBlock Text="&#xE8A9;" FontFamily="{StaticResource App.IconFont}"
+                                               FontSize="14" Foreground="{DynamicResource App.TextSecondary}"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Text="Desktop tiles" Style="{StaticResource App.CardTitle}" Margin="8,0,0,0" />
+                                </StackPanel>
+                                <TextBlock Text="How the bucket tiles sitting on your desktop look."
+                                           Style="{StaticResource App.Caption}" Margin="0,0,0,10" />
+
+                                <DockPanel Margin="0,8,0,0">
+                                    <TextBlock DockPanel.Dock="Left" Text="Transparency" Width="120"
+                                               VerticalAlignment="Center" Style="{StaticResource App.Body}" />
+                                    <TextBlock DockPanel.Dock="Right" x:Name="TransparencyValue" Text="98%"
+                                               Width="42" TextAlignment="Right" VerticalAlignment="Center"
+                                               Style="{StaticResource App.Caption}" />
+                                    <Slider x:Name="TransparencySlider" Style="{StaticResource App.Slider}"
+                                            Minimum="0" Maximum="100" Margin="14,0"
+                                            VerticalAlignment="Center" ValueChanged="Transparency_Changed" />
+                                </DockPanel>
+                                <TextBlock Text="Higher = more of the wallpaper shows through the glass."
+                                           Style="{StaticResource App.Caption}" Margin="0,4,0,0" />
+
+                                <DockPanel Margin="0,14,0,0">
+                                    <TextBlock DockPanel.Dock="Left" Text="Corner roundness" Width="120"
+                                               VerticalAlignment="Center" Style="{StaticResource App.Body}" />
+                                    <TextBlock DockPanel.Dock="Right" x:Name="CornerValue" Text="12 px"
+                                               Width="42" TextAlignment="Right" VerticalAlignment="Center"
+                                               Style="{StaticResource App.Caption}" />
+                                    <Slider x:Name="CornerSlider" Style="{StaticResource App.Slider}"
+                                            Minimum="0" Maximum="24" Margin="14,0"
+                                            VerticalAlignment="Center" ValueChanged="Corner_Changed" />
+                                </DockPanel>
+
+                                <CheckBox x:Name="BlurCheck" Style="{StaticResource App.ToggleSwitch}"
+                                          Content="Frosted glass (blur what's behind the tile)" Margin="0,16,0,0"
+                                          Checked="Blur_Changed" Unchecked="Blur_Changed" />
+                                <CheckBox x:Name="BorderCheck" Style="{StaticResource App.ToggleSwitch}"
+                                          Content="Show a thin outline around each tile" Margin="0,10,0,0"
+                                          Checked="Border_Changed" Unchecked="Border_Changed" />
+
+                                <TextBlock Text="PREVIEW" FontSize="10" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource App.TextTertiary}" Margin="0,16,0,6" />
+                                <Border Background="{DynamicResource App.SurfaceAlt}"
+                                        BorderBrush="{DynamicResource App.ControlBorder}" BorderThickness="1"
+                                        CornerRadius="6" Height="92" ClipToBounds="True">
+                                    <Border x:Name="TilePreview" Width="160" Height="60"
+                                            HorizontalAlignment="Center" VerticalAlignment="Center"
+                                            CornerRadius="12" BorderThickness="1">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center"
+                                                    VerticalAlignment="Center">
+                                            <Border Width="18" Height="18" CornerRadius="3" Margin="3" Background="#4C8BF5" />
+                                            <Border Width="18" Height="18" CornerRadius="3" Margin="3" Background="#3FBF6E" />
+                                            <Border Width="18" Height="18" CornerRadius="3" Margin="3" Background="#22C7DE" />
+                                            <Border Width="18" Height="18" CornerRadius="3" Margin="3" Background="#F2B138" />
+                                        </StackPanel>
+                                    </Border>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource App.Card}">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,3">
+                                    <TextBlock Text="&#xE790;" FontFamily="{StaticResource App.IconFont}"
+                                               FontSize="14" Foreground="{DynamicResource App.TextSecondary}"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Text="Accent colour" Style="{StaticResource App.CardTitle}" Margin="8,0,0,0" />
+                                </StackPanel>
+                                <TextBlock Text="Used for switches, selection and the pin dot on a tile."
+                                           Style="{StaticResource App.Caption}" Margin="0,0,0,10" />
+                                <CheckBox x:Name="AccentSystemCheck" Style="{StaticResource App.ToggleSwitch}"
+                                          Content="Use my Windows accent colour"
+                                          Checked="AccentSystem_Changed" Unchecked="AccentSystem_Changed" />
+                                <WrapPanel x:Name="SwatchPanel" Margin="0,14,0,0" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- === ABOUT === -->
+                    <StackPanel x:Name="AboutPage" Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,14">
+                            <Viewbox Width="52" Height="52">
+                                <UniformGrid Rows="2" Columns="2" Width="48" Height="48">
+                                    <Border Margin="2" CornerRadius="4" Background="#4C8BF5" />
+                                    <Border Margin="2" CornerRadius="4" Background="#3FBF6E" />
+                                    <Border Margin="2" CornerRadius="4" Background="#22C7DE" />
+                                    <Border Margin="2" CornerRadius="4" Background="#F2B138" />
+                                </UniformGrid>
+                            </Viewbox>
+                            <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="Desktop Buckets" Style="{StaticResource App.PageTitle}" />
+                                <TextBlock x:Name="AboutVersionText" Text="version 0.0.0"
+                                           Style="{StaticResource App.Caption}" Margin="0,2,0,0" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <TextBlock Style="{StaticResource App.Body}" Margin="0,0,0,14"
+                                   Text="A Fences-style desktop widget: each bucket is a real folder that shows its most-used files as a compact tile on your desktop." />
+
+                        <Border Style="{StaticResource App.Card}">
+                            <StackPanel>
+                                <Button Content="Open the GitHub repository"
+                                        Style="{StaticResource App.LinkButton}" Click="OpenRepo_Click" />
+                                <Button Content="Open the data folder" Margin="0,12,0,0"
+                                        Style="{StaticResource App.LinkButton}" Click="OpenDataDir_Click" />
+                                <Button Content="View log.txt" Margin="0,12,0,0"
+                                        Style="{StaticResource App.LinkButton}" Click="OpenLog_Click" />
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="© 2026 Desktop Buckets" Style="{StaticResource App.Caption}"
+                                   Margin="0,14,0,0" />
+                    </StackPanel>
+
+                </Grid>
+            </ScrollViewer>
+
+            <!-- footer -->
+            <Border Grid.Row="2" BorderBrush="{DynamicResource App.Divider}" BorderThickness="0,1,0,0"
+                    Padding="28,12">
+                <Button Content="Close" Style="{StaticResource App.Button}" HorizontalAlignment="Right"
+                        MinWidth="92" IsCancel="True" Click="Close_Click" />
+            </Border>
         </Grid>
-
-        <StackPanel Orientation="Horizontal" Margin="0,14,0,0" VerticalAlignment="Center">
-            <Button x:Name="CheckNowButton" Content="Check now" Click="CheckNow_Click" />
-            <TextBlock x:Name="CheckStatusText" Text="" Foreground="#FF9A9AA6"
-                       VerticalAlignment="Center" Margin="12,0,0,0" />
-        </StackPanel>
-
-        <Border Height="1" Background="#FF3A3A44" Margin="0,20,0,0" />
-
-        <!-- Startup & desktop -->
-        <TextBlock Text="STARTUP &amp; DESKTOP" Style="{StaticResource SectionHeader}" Margin="0,16,0,8" />
-
-        <CheckBox x:Name="RunAtSignInCheck"
-                  Content="Start Desktop Buckets when I sign in"
-                  Checked="RunAtSignIn_Changed" Unchecked="RunAtSignIn_Changed" />
-
-        <CheckBox x:Name="ShellMenuCheck"
-                  Content="Show “New Bucket” on the desktop right-click menu"
-                  Checked="ShellMenu_Changed" Unchecked="ShellMenu_Changed" />
-        <TextBlock Text="Turning this on asks for approval once."
-                   Foreground="#FF9A9AA6" FontSize="11" Margin="20,3,0,0" />
-
-        <StackPanel Orientation="Horizontal" Margin="0,14,0,0" VerticalAlignment="Center">
-            <Button x:Name="RealignButton" Content="Align icons to grid" Click="RealignIcons_Click" />
-            <TextBlock x:Name="RealignStatusText" Text="" Foreground="#FF9A9AA6"
-                       VerticalAlignment="Center" Margin="12,0,0,0" />
-        </StackPanel>
-        <TextBlock Text="Snaps any desktop icon that has drifted off this app's grid. Windows' own “Align icons to grid” is kept off so it can't fight tile placement — use this instead."
-                   Foreground="#FF9A9AA6" FontSize="11" TextWrapping="Wrap" Margin="0,3,0,0" />
-
-        <Border Height="1" Background="#FF3A3A44" Margin="0,20,0,0" />
-
-        <!-- Data -->
-        <TextBlock Text="DATA" Style="{StaticResource SectionHeader}" Margin="0,16,0,8" />
-        <TextBlock Text="Settings, the bucket list and log.txt live in:" Foreground="#FF9A9AA6" FontSize="11" />
-        <StackPanel Orientation="Horizontal" Margin="0,4,0,0" VerticalAlignment="Center">
-            <TextBlock x:Name="DataDirText" Text="" FontSize="11" VerticalAlignment="Center"
-                       TextTrimming="CharacterEllipsis" MaxWidth="290" />
-            <Button Content="Open" Margin="12,0,0,0" Height="22" Padding="10,0" Click="OpenDataDir_Click" />
-        </StackPanel>
-
-        <Button Content="Close" HorizontalAlignment="Right" Margin="0,22,0,0"
-                MinWidth="90" IsCancel="True" Click="Close_Click" />
-    </StackPanel>
+    </Grid>
 </Window>

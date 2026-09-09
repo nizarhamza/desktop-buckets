@@ -133,6 +133,10 @@ namespace DesktopBuckets
 
             DispatcherUnhandledException += OnUnhandledException;
 
+            // Load look & feel and apply the light/dark palette before any window shows.
+            Services.AppearanceService.Initialize(Dispatcher);
+            Services.ThemeManager.Initialize();
+
             // Subscribe (inside Start) before listening, so a command that arrives in
             // the first milliseconds isn't dropped on the floor.
             _manager = new BucketManager(_single);

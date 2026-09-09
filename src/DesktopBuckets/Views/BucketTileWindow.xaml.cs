@@ -311,7 +311,36 @@ namespace DesktopBuckets.Views
         private void OnSourceInitialized(object? sender, EventArgs e)
         {
             DesktopWindowHelper.MakeDesktopWidget(this);
-            AcrylicHelper.Apply(this);
+            ApplyAppearance();
+        }
+
+        /// <summary>Re-reads the shared <see cref="AppearanceService"/> and repaints the
+        /// tile's glass: fill opacity, corner radius, outline, blur-behind, and the
+        /// per-theme colour of the file labels. Called on first show and again whenever
+        /// the Settings &gt; Appearance page (or Windows itself) changes something.</summary>
+        public void ApplyAppearance()
+        {
+            try
+            {
+                var a = AppearanceService.Current;
+                bool dark = AppearanceService.ResolvedTheme != AppTheme.Light;
+
+                byte alpha = (byte)Math.Round(a.TileFillAlphaPercent / 100.0 * 255.0);
+                var tint = dark ? Color.FromRgb(0x13, 0x15, 0x19) : Color.FromRgb(0xEA, 0xEE, 0xF2);
+                Card.Background = new SolidColorBrush(Color.FromArgb(alpha, tint.R, tint.G, tint.B));
+                Card.CornerRadius = new CornerRadius(a.TileCornerRadius);
+                Card.BorderThickness = new Thickness(a.ShowTileBorder ? 1 : 0);
+                Card.BorderBrush = new SolidColorBrush(dark
+                    ? Color.FromArgb(0x4D, 0xFF, 0xFF, 0xFF)
+                    : Color.FromArgb(0x33, 0x00, 0x00, 0x00));
+
+                var label = dark ? Color.FromRgb(0xEC, 0xEC, 0xEC) : Color.FromRgb(0x22, 0x22, 0x22);
+                SlotsHost.Foreground = new SolidColorBrush(label);
+                EmptyHint.Foreground = new SolidColorBrush(Color.FromArgb(0x99, label.R, label.G, label.B));
+
+                AcrylicHelper.Apply(this, a.BlurBehindTiles);
+            }
+            catch (Exception ex) { Log.Error("ApplyAppearance failed", ex); }
         }
 
         /// <summary>

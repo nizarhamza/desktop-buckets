@@ -23,6 +23,8 @@ namespace DesktopBuckets.Interop
 
         public const uint SWP_NOSIZE = 0x0001;
         public const uint SWP_NOMOVE = 0x0002;
+        public const uint SWP_NOZORDER = 0x0004;
+        public const uint SWP_FRAMECHANGED = 0x0020;
         public const uint SWP_NOACTIVATE = 0x0010;
         public const uint SWP_NOOWNERZORDER = 0x0200;
         public const uint SWP_NOSENDCHANGING = 0x0400;
@@ -229,6 +231,11 @@ namespace DesktopBuckets.Interop
         public const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
         public const int DWMWCP_ROUND = 2;
         public const int DWMSBT_TRANSIENTWINDOW = 3; // acrylic
+
+        // Dark title bar / non-client area. Attribute 20 on Win10 20H1+ and Win11;
+        // 19 on the earlier 1809 builds that first shipped it undocumented.
+        public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+        public const int DWMWA_USE_IMMERSIVE_DARK_MODE_PRE_20H1 = 19;
 
         [StructLayout(LayoutKind.Sequential)]
         public struct MARGINS { public int cxLeftWidth, cxRightWidth, cyTopHeight, cyBottomHeight; }

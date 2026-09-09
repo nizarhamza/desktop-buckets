@@ -66,6 +66,10 @@ namespace DesktopBuckets.Services
             _update.UpToDateOrError += msg => _tray?.ShowBalloon("Desktop Buckets", msg);
             _update.Start();
 
+            // Live-apply Appearance changes (transparency, corners, blur, theme) to every
+            // open tile. ThemeManager separately swaps the window/menu palette.
+            AppearanceService.Changed += OnAppearanceChanged;
+
             _single.CommandReceived += OnForwardedCommand;
 
             try
@@ -335,6 +339,12 @@ namespace DesktopBuckets.Services
             _store.Remove(folder);
         }
 
+        private void OnAppearanceChanged()
+        {
+            foreach (var e in _entries.Values)
+                e.Window.ApplyAppearance();
+        }
+
         private void SyncDesktopVisibility()
         {
             if (_disposed) return;
@@ -493,6 +503,8 @@ namespace DesktopBuckets.Services
         {
             if (_disposed) return;
             _disposed = true;
+
+            AppearanceService.Changed -= OnAppearanceChanged;
 
             _desktopWatch?.Stop();
             _desktopWatch = null;

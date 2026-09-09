@@ -7,8 +7,11 @@
         ResizeMode="NoResize"
         ShowInTaskbar="False"
         WindowStyle="SingleBorderWindow"
-        Background="#FF2B2B2B">
-    <Grid Margin="18" Width="320">
+        FontFamily="Segoe UI Variable Text, Segoe UI"
+        TextOptions.TextFormattingMode="Ideal"
+        UseLayoutRounding="True"
+        Background="{DynamicResource App.WindowBackground}">
+    <Grid Margin="20" Width="330">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -17,31 +20,28 @@
 
         <TextBlock x:Name="PromptText"
                    Grid.Row="0"
-                   Foreground="#FFEAEAEA"
+                   Foreground="{DynamicResource App.TextPrimary}"
                    FontSize="13"
                    Margin="0,0,0,10"
                    Text="Name" />
 
         <TextBox x:Name="Input"
                  Grid.Row="1"
-                 FontSize="14"
-                 Padding="6,4"
-                 Background="#FF1E1E1E"
-                 Foreground="White"
-                 CaretBrush="White"
-                 BorderBrush="#FF555555" />
+                 Style="{StaticResource App.TextBox}" />
 
         <StackPanel Grid.Row="2"
                     Orientation="Horizontal"
                     HorizontalAlignment="Right"
-                    Margin="0,16,0,0">
+                    Margin="0,18,0,0">
             <Button x:Name="OkButton"
                     Content="Create"
-                    Width="84" Height="28"
+                    Style="{StaticResource App.AccentButton}"
+                    MinWidth="88"
                     IsDefault="True"
                     Click="Ok_Click" />
             <Button Content="Cancel"
-                    Width="84" Height="28"
+                    Style="{StaticResource App.Button}"
+                    MinWidth="88"
                     Margin="8,0,0,0"
                     IsCancel="True" />
         </StackPanel>

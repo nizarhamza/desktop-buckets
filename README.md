@@ -217,12 +217,21 @@ src/DesktopBuckets/
     ShellFileOperations.cs   IFileOperation: drops (move/copy) + Recycle Bin, on an STA worker
     Authenticode.cs          WinVerifyTrust + signer thumbprint for downloaded installers
     DesktopWindowHelper.cs   WS_EX_NOACTIVATE + hold-at-bottom Z-order
+    AcrylicHelper.cs         blur-behind for the translucent tiles (toggleable)
+    WindowChromeHelper.cs    dark/light title bar + rounded corners, tracks the theme
+  Themes/
+    Palette.Dark.xaml        the two swappable colour palettes (matching keys)
+    Palette.Light.xaml
+    Controls.xaml            Win11-style styles: toggle switch, combo, slider, menus, …
   Models/
     BucketConfig.cs          the .bucket.json shape
+    AppearanceConfig.cs      appearance.json: theme, tile transparency/corners/blur, accent
     BucketFile.cs            immutable snapshot of one file + activity key
     Bucket.cs                folder + config; enumerate / pin / rename / prune
   Services/
     BucketStore.cs           the buckets.json index
+    AppearanceService.cs     loads appearance.json; resolves System theme + Windows accent
+    ThemeManager.cs          swaps the light/dark palette dictionary at runtime
     BucketManager.cs         owns windows + watchers + tray; implements IBucketHost
     BucketWatcher.cs         debounced FileSystemWatcher
     FileRankingService.cs    pinned-first + recent-fill selection (pure, testable)
@@ -237,7 +246,8 @@ src/DesktopBuckets/
     BucketTileViewModel.cs   slots, grid dims, empty/overflow state, file actions
     BucketFileViewModel.cs   one slot
   Views/
-    BucketTileWindow.xaml(.cs)   the tile
+    BucketTileWindow.xaml(.cs)   the tile (ApplyAppearance: glass opacity/corner/blur/label colour)
+    SettingsWindow.xaml(.cs)     General / Appearance / About, sidebar nav, live-applied
     InputDialog.xaml(.cs)        name prompt
     UpdatePromptWindow.xaml(.cs) update notice
     TrayIconController.cs        WinForms NotifyIcon
@@ -263,7 +273,8 @@ Not yet implemented / rough edges:
 - **WorkerW wallpaper parenting** as an option, for tiles that should hide on "Show
   desktop" like real desktop icons. v1 keeps them visible (Fences-style).
 - **Multi-monitor position clamping** on display-configuration changes is basic.
-- **Theming / size presets**, custom accent, compact vs comfortable density.
+- **Size presets / density** (compact vs comfortable). Theme (light/dark/system), tile
+  transparency, corner roundness, blur and accent colour now live in Settings › Appearance.
 - **Delta updates** — the updater currently pulls the full ~49 MB installer each time.
 - **UI tests** — `tests/DesktopBuckets.Tests` covers the pure logic (ranking, pin/prune,
   version parsing, JSON persistence); the tile windows and interop are untested.

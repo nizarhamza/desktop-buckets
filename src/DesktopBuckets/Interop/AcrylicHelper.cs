@@ -12,10 +12,21 @@ namespace DesktopBuckets.Interop
     /// </summary>
     internal static class AcrylicHelper
     {
-        public static void Apply(Window window)
+        public static void Apply(Window window) => Apply(window, blur: true);
+
+        /// <param name="blur">When false the OS blur-behind is switched off, leaving the
+        /// window merely translucent (its own fill alpha still shows the wallpaper, just
+        /// unfrosted). The Appearance &gt; "Frosted glass" toggle drives this.</param>
+        public static void Apply(Window window, bool blur)
         {
             var hwnd = new WindowInteropHelper(window).Handle;
             if (hwnd == IntPtr.Zero) return;
+
+            if (!blur)
+            {
+                SetAccent(hwnd, NativeMethods.AccentState.ACCENT_DISABLED, 0);
+                return;
+            }
 
             if (!SetAccent(hwnd, NativeMethods.AccentState.ACCENT_ENABLE_ACRYLICBLURBEHIND, 0x01000000))
                 SetAccent(hwnd, NativeMethods.AccentState.ACCENT_ENABLE_BLURBEHIND, 0);
