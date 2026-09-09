@@ -73,10 +73,11 @@ Name: "{group}\Uninstall {#MyAppName}";  Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}";      Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Registry]
-; Launch at sign-in (per-user Run key), removed on uninstall.
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; \
-  ValueName: "DesktopBuckets"; ValueData: """{app}\{#MyAppExeName}"""; \
-  Tasks: autostart; Flags: uninsdeletevalue
+; Sign-in autostart is now a per-user logon scheduled task (registered in [Run]
+; below via --register-autostart). Older builds used this Run value; drop it on
+; upgrade and on uninstall so the two mechanisms can never both fire.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; \
+  ValueName: "DesktopBuckets"; Flags: deletevalue uninsdeletevalue
 
 ; Legacy fallback verbs (used only on builds without the MSIX shell package).
 ; Removed on uninstall whether or not they were ever created.
@@ -86,6 +87,15 @@ Root: HKCU; Subkey: "Software\Classes\DesktopBackground\shell\DesktopBuckets.New
   Flags: dontcreatekey uninsdeletekey
 
 [Run]
+; Sign-in autostart = a per-user logon scheduled task. Register it through the app
+; itself (same pattern as --register-shell) so the Settings toggle and the
+; installer share one task definition. Interactive installs only: a silent update
+; is the in-app updater, and it must not resurrect an autostart the user later
+; turned off in Settings.
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--register-autostart"; \
+  Tasks: autostart; Flags: runhidden waituntilterminated skipifsilent; \
+  StatusMsg: "Registering sign-in startup..."
+
 ; Interactive install: offer to launch on the finished page.
 Filename: "{app}\{#MyAppExeName}"; Description: "Start {#MyAppName} now"; \
   Flags: nowait postinstall skipifsilent
@@ -97,6 +107,10 @@ Filename: "{app}\{#MyAppExeName}"; Flags: nowait runhidden skipifnotsilent
 ; no elevation) or the legacy verbs, depending on what this build shipped.
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--unregister-shell"; \
   Flags: runhidden skipifdoesntexist waituntilterminated; RunOnceId: "UnregisterShell"
+
+; Remove the sign-in autostart scheduled task.
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--unregister-autostart"; \
+  Flags: runhidden skipifdoesntexist waituntilterminated; RunOnceId: "UnregisterAutostart"
 
 [Code]
 // The app's single-instance mutex names (see Services\SingleInstance.cs).

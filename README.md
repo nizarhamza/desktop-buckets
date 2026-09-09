@@ -18,8 +18,8 @@ Download **`DesktopBuckets-Setup-<version>.exe`** from the
 - Installs to `%LOCALAPPDATA%\Programs\Desktop Buckets`.
 - Registers in **Settings → Apps → Installed apps** as "Desktop Buckets"; uninstall from
   there (or the Start-menu *Uninstall Desktop Buckets* shortcut) at any time.
-- Optional "start automatically when I sign in" checkbox (a per-user `Run` key,
-  removed on uninstall).
+- Optional "start automatically when I sign in" checkbox (a per-user logon
+  scheduled task, `\DesktopBuckets-Autostart`, removed on uninstall).
 - Uninstalling removes the app, the autostart entry and the "New Bucket" desktop
   right-click verb, then asks whether to also delete settings/logs — **your bucket
   folders and their files are never touched.**
@@ -228,6 +228,7 @@ src/DesktopBuckets/
     FileRankingService.cs    pinned-first + recent-fill selection (pure, testable)
     IconService.cs           SHGetFileInfo → frozen ImageSource, cached
     ShellIntegration.cs      MSIX package register/unregister (+ legacy verb fallback)
+    StartupRegistration.cs   sign-in autostart: the \DesktopBuckets-Autostart logon task
     UpdateService.cs         GitHub-release update poller + installer hand-off
     SingleInstance.cs        mutex + named-pipe command forwarding
     RecycleBin.cs            thin wrapper over ShellFileOperations.Recycle

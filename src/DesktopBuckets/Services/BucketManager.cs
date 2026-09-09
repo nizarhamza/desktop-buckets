@@ -400,6 +400,12 @@ namespace DesktopBuckets.Services
                 if (args.Any(a => a.Equals("--settings", StringComparison.OrdinalIgnoreCase)))
                     OpenSettings();
 
+                // A second launch while we're already up (the sign-in task firing behind
+                // a manual start, a bare relaunch, a double-click): surface the tiles
+                // rather than doing nothing.
+                if (args.Any(a => a.Equals("--autostart", StringComparison.OrdinalIgnoreCase)))
+                    ShowAll();
+
                 // The installer asks the running instance to leave gracefully (state
                 // flushed, displaced icons restored) instead of taskkill /F.
                 if (args.Any(a => a.Equals("--quit", StringComparison.OrdinalIgnoreCase)))

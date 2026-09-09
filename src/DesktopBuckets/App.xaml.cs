@@ -15,6 +15,12 @@ namespace DesktopBuckets
         {
             base.OnStartup(e);
 
+            // Who am I, and how was I launched? Without this the sign-in path left no
+            // trace at all — you couldn't tell whether autostart had even fired, or
+            // which exe/instance won the single-instance race.
+            Services.Log.Info($"OnStartup pid={Environment.ProcessId} exe=\"{Environment.ProcessPath}\" " +
+                              $"args=[{string.Join(' ', e.Args)}]");
+
             // One-shot commands that don't need a running instance.
             if (e.Args.Any(a => a.Equals("--register-shell", StringComparison.OrdinalIgnoreCase)))
             {
@@ -25,6 +31,18 @@ namespace DesktopBuckets
             if (e.Args.Any(a => a.Equals("--unregister-shell", StringComparison.OrdinalIgnoreCase)))
             {
                 ShellIntegration.Unregister();
+                Shutdown();
+                return;
+            }
+            if (e.Args.Any(a => a.Equals("--register-autostart", StringComparison.OrdinalIgnoreCase)))
+            {
+                StartupRegistration.SetEnabled(true);
+                Shutdown();
+                return;
+            }
+            if (e.Args.Any(a => a.Equals("--unregister-autostart", StringComparison.OrdinalIgnoreCase)))
+            {
+                StartupRegistration.SetEnabled(false);
                 Shutdown();
                 return;
             }
@@ -92,8 +110,12 @@ namespace DesktopBuckets
             _single = new SingleInstance();
             if (!_single.IsPrimary)
             {
-                if (e.Args.Length > 0)
-                    SingleInstance.ForwardToPrimary(e.Args);
+                // Hand off to the instance that already owns this session. Forward even
+                // with no args — a bare autostart relaunch, or a double-click while the
+                // app is running — as "--autostart" so the primary re-shows its tiles
+                // instead of this process just vanishing with nothing on screen.
+                Services.Log.Info("Another instance owns this session; forwarding and exiting.");
+                SingleInstance.ForwardToPrimary(e.Args.Length > 0 ? e.Args : new[] { "--autostart" });
                 _single.Dispose();
                 _single = null;
                 Shutdown();
@@ -114,7 +136,17 @@ namespace DesktopBuckets
             // Subscribe (inside Start) before listening, so a command that arrives in
             // the first milliseconds isn't dropped on the floor.
             _manager = new BucketManager(_single);
-            _manager.Start();
+            try
+            {
+                _manager.Start();
+            }
+            catch (Exception ex)
+            {
+                // A throw here used to kill the process before the tray or IPC server
+                // existed, with nothing logged on the sign-in path. Stay up (tray/IPC
+                // may still have come up) and leave a trace instead.
+                Services.Log.Error("BucketManager.Start faulted during startup", ex);
+            }
             _single.StartServer();
 
             var i = Array.FindIndex(e.Args, a => a.Equals("--new-bucket", StringComparison.OrdinalIgnoreCase));
